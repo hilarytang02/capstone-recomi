@@ -1,5 +1,2 @@
-import { type ClassValue, clsx } from "clsx"
-
-export function cn(...inputs: ClassValue[]) {
-  return clsx(inputs)
-}
+// Re-export from shared utils
+export { cn, isWeb, isMobile } from '../../shared/utils'
