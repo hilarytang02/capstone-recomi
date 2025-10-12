@@ -10,9 +10,15 @@ const WORLD: Region = {
   longitudeDelta: 180,
 };
 const STREET_DELTA = 0.0025; // tighter zoom for block-level view
+const SHEET_LAT_OFFSET_FACTOR = 0.35; // how far to shift map center when sheet is showing
 
-const makeRegion = (latitude: number, longitude: number, delta = STREET_DELTA): Region => ({
-  latitude,
+const makeRegion = (
+  latitude: number,
+  longitude: number,
+  delta = STREET_DELTA,
+  offsetFactor = 0
+): Region => ({
+  latitude: latitude - delta * offsetFactor,
   longitude,
   latitudeDelta: delta,
   longitudeDelta: delta,
@@ -25,15 +31,31 @@ export default function MapScreen() {
   const [query, setQuery] = React.useState("");
   const [pin, setPin] = React.useState<{ lat: number; lng: number } | null>(null);
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
 
   React.useEffect(() => {
     // Prime local state without prompting; fetchUserLocation will handle requests.
     Location.getForegroundPermissionsAsync().then(({ status }) => setLocPerm(status));
   }, []);
 
-  const animateTo = React.useCallback(
-    (r: Region, ms = 800) => mapRef.current?.animateToRegion(r, ms),
-    []
+  const animateTo = React.useCallback((r: Region, ms = 800) => {
+    mapRef.current?.animateToRegion(r, ms);
+  }, []);
+
+  const focusOn = React.useCallback(
+    (
+      latitude: number,
+      longitude: number,
+      opts?: { delta?: number; sheet?: boolean; animateMs?: number }
+    ) => {
+      const delta = opts?.delta ?? STREET_DELTA;
+      const offsetFactor = opts?.sheet ? SHEET_LAT_OFFSET_FACTOR : 0;
+      const nextRegion = makeRegion(latitude, longitude, delta, offsetFactor);
+      setRegion(nextRegion);
+      animateTo(nextRegion, opts?.animateMs);
+      return nextRegion;
+    },
+    [animateTo]
   );
 
   const fetchUserLocation = React.useCallback(
@@ -48,19 +70,18 @@ export default function MapScreen() {
         }
 
         const { coords } = await Location.getCurrentPositionAsync({});
-        const nextRegion = makeRegion(coords.latitude, coords.longitude);
+        const nextRegion = focusOn(coords.latitude, coords.longitude, {
+          sheet: sheetOpen,
+          animateMs: animate ? 800 : 0,
+        });
         setUserCoords({ latitude: coords.latitude, longitude: coords.longitude });
-        setRegion(nextRegion);
-        if (animate) {
-          animateTo(nextRegion);
-        }
         return nextRegion;
       } catch (err) {
         console.warn("Location lookup failed:", err);
         return null;
       }
     },
-    [animateTo, locPerm]
+    [focusOn, locPerm, sheetOpen]
   );
 
   const goToMyLocation = React.useCallback(() => {
@@ -68,12 +89,15 @@ export default function MapScreen() {
   }, [fetchUserLocation]);
 
   React.useEffect(() => {
-    void fetchUserLocation(true);
-  }, [fetchUserLocation]);
+    if (!userCoords) {
+      void fetchUserLocation(true);
+    }
+  }, [fetchUserLocation, userCoords]);
   const handleSubmit = async (raw?: string) => {
     const trimmed = (raw ?? query).trim();
     if (!trimmed) {
       setPin(null);
+      setSheetOpen(false);
       return;
     }
 
@@ -84,9 +108,8 @@ export default function MapScreen() {
 
       const { latitude, longitude } = match;
       setPin({ lat: latitude, lng: longitude });
-      const nextRegion = makeRegion(latitude, longitude);
-      setRegion(nextRegion);
-      animateTo(nextRegion);
+      setSheetOpen(true);
+      focusOn(latitude, longitude, { sheet: true });
     } catch (err) {
       console.warn("Geocoding failed:", err);
     }
@@ -103,11 +126,10 @@ export default function MapScreen() {
         onRegionChangeComplete={setRegion}
         onPress={({ nativeEvent }) => {
           const { latitude, longitude } = nativeEvent.coordinate;
-          const nextRegion = makeRegion(latitude, longitude);
+          setSheetOpen(true);
           setPin({ lat: latitude, lng: longitude });
           setQuery("");
-          setRegion(nextRegion);
-          animateTo(nextRegion);
+          focusOn(latitude, longitude, { sheet: true });
         }}
         showsScale
         showsCompass
@@ -138,6 +160,7 @@ export default function MapScreen() {
           label="World"
           onPress={() => {
             setPin(null);
+            setSheetOpen(false);
             setRegion(WORLD);
             animateTo(WORLD);
           }}
@@ -156,6 +179,33 @@ export default function MapScreen() {
           <Text style={styles.recenterText}>My Location</Text>
         </Pressable>
       </View>
+
+      {pin && sheetOpen && (
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Selected Location</Text>
+            <Pressable
+              onPress={() => {
+                setSheetOpen(false);
+                if (pin) {
+                  focusOn(pin.lat, pin.lng, { sheet: false });
+                }
+              }}
+              style={styles.sheetClose}
+            >
+              <Text style={styles.sheetCloseText}>Close</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.sheetBody}>
+            <Text style={styles.sheetMeta}>
+              Lat {pin.lat.toFixed(5)} · Lng {pin.lng.toFixed(5)}
+            </Text>
+            <Text style={styles.sheetHint}>Future recommendation details will appear here.</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -238,5 +288,65 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 14,
+  },
+  sheet: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: "50%",
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 48,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: "#e5e7eb",
+    marginBottom: 16,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  sheetClose: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(15, 23, 42, 0.08)",
+  },
+  sheetCloseText: {
+    color: "#0f172a",
+    fontWeight: "600",
+    fontSize: 13,
+  },
+  sheetBody: {
+    gap: 12,
+  },
+  sheetMeta: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1f2937",
+  },
+  sheetHint: {
+    fontSize: 13,
+    color: "#6b7280",
+    lineHeight: 18,
   },
 });
