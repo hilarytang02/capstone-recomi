@@ -11,6 +11,9 @@ import {
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "../../components/MapView";
 import * as Location from "expo-location";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { Camera } from "react-native-maps";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 
 const WORLD: Region = {
   latitude: 20,
@@ -57,6 +60,7 @@ const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: num
   Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5;
 
 export default function MapScreen() {
+  const insets = useSafeAreaInsets();
   const mapRef = React.useRef<MapView | null>(null);
   const [region, setRegion] = React.useState<Region>(WORLD);
   const [locPerm, setLocPerm] = React.useState<"granted" | "denied" | "undetermined">("undetermined");
@@ -65,6 +69,8 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
   const [listModalVisible, setListModalVisible] = React.useState(false);
+  const [heading, setHeading] = React.useState(0);
+  const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
 
   const dummyLists = React.useMemo(
     () => [
@@ -99,6 +105,7 @@ export default function MapScreen() {
       const nextRegion = makeRegion(latitude, longitude, delta, offsetFactor);
       setRegion(nextRegion);
       animateTo(nextRegion, opts?.animateMs);
+      setHeading(0);
       return nextRegion;
     },
     [animateTo]
@@ -139,7 +146,10 @@ export default function MapScreen() {
 
   React.useEffect(() => {
     void fetchUserLocation(true);
-  }, [fetchUserLocation]);
+    // We intentionally ignore dependency warnings so closing the sheet does not re-trigger centering.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSubmit = async (raw?: string) => {
     const trimmed = (raw ?? query).trim();
     if (!trimmed) {
@@ -184,6 +194,40 @@ export default function MapScreen() {
       });
   };
 
+  const handleCompassPress = React.useCallback(() => {
+    if (!mapRef.current) return;
+
+    if (cameraInfo && mapRef.current.animateCamera) {
+      mapRef.current.animateCamera(
+        {
+          ...cameraInfo,
+          heading: 0,
+        },
+        { duration: 300 }
+      );
+    } else if (mapRef.current.animateCamera) {
+      const fallbackCamera: Camera = {
+        center: {
+          latitude: region.latitude,
+          longitude: region.longitude,
+        },
+        heading: 0,
+        pitch: 0,
+        altitude: cameraInfo?.altitude ?? 1000,
+        zoom: cameraInfo?.zoom,
+      };
+      mapRef.current.animateCamera(fallbackCamera, { duration: 300 });
+    } else if (mapRef.current.animateToRegion) {
+      mapRef.current.animateToRegion(
+        makeRegion(region.latitude, region.longitude, region.latitudeDelta ?? STREET_DELTA),
+        300
+      );
+    }
+
+    setHeading(0);
+    setCameraInfo((prev) => (prev ? { ...prev, heading: 0 } : prev));
+  }, [cameraInfo, region.latitude, region.longitude]);
+
   return (
     <View style={styles.container}>
       <MapView
@@ -192,10 +236,23 @@ export default function MapScreen() {
         provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
         initialRegion={userCoords ? makeRegion(userCoords.latitude, userCoords.longitude) : WORLD}
         region={region}
-        onRegionChangeComplete={setRegion}
+        onRegionChangeComplete={async (nextRegion) => {
+          setRegion(nextRegion);
+          try {
+            const camera = await mapRef.current?.getCamera?.();
+            if (camera) {
+              setCameraInfo(camera);
+              if (camera.heading != null) {
+                setHeading(camera.heading);
+              }
+            }
+          } catch {
+            // ignore inability to fetch camera heading
+          }
+        }}
         onPress={({ nativeEvent }) => handleMapPress(nativeEvent.coordinate)}
-        showsScale
-        showsCompass
+        showsScale={false}
+        showsCompass={false}
         showsUserLocation={locPerm === "granted"}
         toolbarEnabled={false}
         zoomEnabled
@@ -211,34 +268,14 @@ export default function MapScreen() {
         value={query}
         onChangeText={setQuery}
         onSubmitEditing={({ nativeEvent }) => handleSubmit(nativeEvent.text)}
-        style={styles.searchBar}
+        style={[styles.searchBar, { top: insets.top + 16 }]}
         blurOnSubmit
         enablesReturnKeyAutomatically
         returnKeyType="search"
       />
 
-      {/* Floating controls */}
-      <View style={styles.controls}>
-        <FloatingButton
-          label="World"
-          onPress={() => {
-            setPin(null);
-            setSheetOpen(false);
-            setListModalVisible(false);
-            setRegion(WORLD);
-            animateTo(WORLD);
-          }}
-        />
-      </View>
-
-      {/* Tiny readout (useful while tuning deltas) */}
-      <View style={styles.readout}>
-        <Text style={styles.readoutText}>
-          {region.latitude.toFixed(3)}, {region.longitude.toFixed(3)} · Δ{region.latitudeDelta.toFixed(2)}/{region.longitudeDelta.toFixed(2)}
-        </Text>
-      </View>
-
       <View style={styles.recenter}>
+        <CompassButton heading={heading} onPress={handleCompassPress} />
         <Pressable onPress={goToMyLocation} style={styles.recenterBtn}>
           <Text style={styles.recenterText}>My Location</Text>
         </Pressable>
@@ -311,48 +348,31 @@ export default function MapScreen() {
   );
 }
 
-function FloatingButton({ label, onPress }: { label: string; onPress: () => void }) {
+function CompassButton({ heading, onPress }: { heading: number; onPress: () => void }) {
+  if (Math.abs(heading) < 3) return null;
+
   return (
-    <Pressable onPress={onPress} style={styles.btn}>
-      <Text style={styles.btnText}>{label}</Text>
+    <Pressable
+      onPress={onPress}
+      style={styles.compassBtn}
+      accessibilityRole="button"
+      accessibilityLabel="Reset map orientation"
+    >
+      <Text style={styles.compassText}>N</Text>
+      <View
+        style={[
+          styles.compassNeedleWrapper,
+          { transform: [{ rotate: `${-heading}deg` }] },
+        ]}
+      >
+        <FontAwesome name="location-arrow" size={16} color="#fff" style={styles.compassArrow} />
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  controls: {
-    position: "absolute",
-    top: 16,
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "flex-start",
-  },
-  btn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "rgba(0,0,0,0.65)",
-    borderRadius: 14,
-  },
-  btnText: { color: "#fff", fontWeight: "600" },
-  readout: {
-    position: "absolute",
-    bottom: 16,
-    left: 16,
-    right: 16,
-    alignItems: "flex-start",
-  },
-  readoutText: {
-    color: "#fff",
-    fontSize: 12,
-    opacity: 0.8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderRadius: 8,
-  },
   searchBar: {
     position: "absolute",
     top: 16,
@@ -372,6 +392,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 24,
     right: 24,
+    alignItems: "flex-end",
+    gap: 12,
   },
   recenterBtn: {
     minWidth: 120,
@@ -389,6 +411,32 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 14,
+  },
+  compassBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(15, 23, 42, 0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  compassText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 10,
+    letterSpacing: 1,
+  },
+  compassNeedleWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  compassArrow: {
+    marginTop: 2,
   },
   sheet: {
     position: "absolute",
