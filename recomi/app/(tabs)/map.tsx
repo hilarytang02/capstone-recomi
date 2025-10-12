@@ -1,6 +1,6 @@
 import React from "react";
-import { View, StyleSheet, Pressable, Text, Platform } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from  "../../components/MapView";
+import { View, StyleSheet, Pressable, Text, Platform, TextInput } from "react-native";
+import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "../../components/MapView";
 import * as Location from "expo-location";
 
 const WORLD: Region = {
@@ -14,6 +14,8 @@ export default function MapScreen() {
   const mapRef = React.useRef<MapView | null>(null);
   const [region, setRegion] = React.useState<Region>(WORLD);
   const [locPerm, setLocPerm] = React.useState<"granted" | "denied" | "undetermined">("undetermined");
+  const [query, setQuery] = React.useState("");
+  const [pin, setPin] = React.useState<{ lat: number; lng: number } | null>(null);
 
   React.useEffect(() => {
     // ask once (you can move this behind a button if you prefer)
@@ -40,6 +42,31 @@ export default function MapScreen() {
       // ignore for now; you can toast an error message later
     }
   };
+  const handleSearch = async (text: string) => {
+    setQuery(text);
+    const trimmed = text.trim();
+    if (!trimmed) {
+      setPin(null);
+      return;
+    }
+
+    try {
+      const results = await Location.geocodeAsync(trimmed);
+      const match = results[0];
+      if (!match) return;
+
+      const { latitude, longitude } = match;
+      setPin({ lat: latitude, lng: longitude });
+      animateTo({
+        latitude,
+        longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      });
+    } catch (err) {
+      console.warn("Geocoding failed:", err);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -57,6 +84,16 @@ export default function MapScreen() {
         rotateEnabled
         scrollEnabled
         pitchEnabled
+      >
+        {pin && <Marker coordinate={{ latitude: pin.lat, longitude: pin.lng }} />}
+      </MapView>
+
+      <TextInput
+        placeholder="Search a place or address"
+        value={query}
+        onChangeText={handleSearch}
+        style={styles.searchBar}
+        returnKeyType="search"
       />
 
       {/* Floating controls */}
@@ -116,5 +153,20 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     backgroundColor: "rgba(0,0,0,0.5)",
     borderRadius: 8,
+  },
+  searchBar: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    right: 16,
+    backgroundColor: "white",
+    height: 44,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+    zIndex: 10,
   },
 });
