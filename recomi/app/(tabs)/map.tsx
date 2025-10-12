@@ -1,5 +1,14 @@
 import React from "react";
-import { View, StyleSheet, Pressable, Text, Platform, TextInput } from "react-native";
+import {
+  FlatList,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "../../components/MapView";
 import * as Location from "expo-location";
 
@@ -10,7 +19,7 @@ const WORLD: Region = {
   longitudeDelta: 180,
 };
 const STREET_DELTA = 0.0025; // tighter zoom for block-level view
-const SHEET_LAT_OFFSET_FACTOR = 0.35; // how far to shift map center when sheet is showing
+const SHEET_LAT_OFFSET_FACTOR = 0.35; // push map center upward when sheet is visible
 
 const makeRegion = (
   latitude: number,
@@ -24,23 +33,60 @@ const makeRegion = (
   longitudeDelta: delta,
 });
 
+type PinData = {
+  lat: number;
+  lng: number;
+  label: string;
+};
+
+const buildLabel = (place: any, fallback: string) => {
+  if (!place) return fallback;
+  const primary =
+    place.name ??
+    place.street ??
+    place.streetName ??
+    place.address ??
+    place.subThoroughfare ??
+    place.district;
+  const secondary = place.city ?? place.subregion ?? place.region ?? place.postalCode;
+  const label = [primary, secondary].filter(Boolean).join(", ");
+  return label || fallback;
+};
+
+const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
+  Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5;
+
 export default function MapScreen() {
   const mapRef = React.useRef<MapView | null>(null);
   const [region, setRegion] = React.useState<Region>(WORLD);
   const [locPerm, setLocPerm] = React.useState<"granted" | "denied" | "undetermined">("undetermined");
   const [query, setQuery] = React.useState("");
-  const [pin, setPin] = React.useState<{ lat: number; lng: number } | null>(null);
+  const [pin, setPin] = React.useState<PinData | null>(null);
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetOpen, setSheetOpen] = React.useState(false);
+  const [listModalVisible, setListModalVisible] = React.useState(false);
+
+  const dummyLists = React.useMemo(
+    () => [
+      { id: "1", name: "Weekend Brunch Spots" },
+      { id: "2", name: "Coffee Crawl" },
+      { id: "3", name: "Date Night Ideas" },
+      { id: "4", name: "Bucket List Cities" },
+      { id: "5", name: "Friend Recs" },
+      { id: "6", name: "Hidden Gems" },
+    ],
+    []
+  );
 
   React.useEffect(() => {
     // Prime local state without prompting; fetchUserLocation will handle requests.
     Location.getForegroundPermissionsAsync().then(({ status }) => setLocPerm(status));
   }, []);
 
-  const animateTo = React.useCallback((r: Region, ms = 800) => {
-    mapRef.current?.animateToRegion(r, ms);
-  }, []);
+  const animateTo = React.useCallback(
+    (r: Region, ms = 800) => mapRef.current?.animateToRegion(r, ms),
+    []
+  );
 
   const focusOn = React.useCallback(
     (
@@ -85,19 +131,21 @@ export default function MapScreen() {
   );
 
   const goToMyLocation = React.useCallback(() => {
+    setPin(null);
+    setSheetOpen(false);
+    setListModalVisible(false);
     void fetchUserLocation(true);
   }, [fetchUserLocation]);
 
   React.useEffect(() => {
-    if (!userCoords) {
-      void fetchUserLocation(true);
-    }
-  }, [fetchUserLocation, userCoords]);
+    void fetchUserLocation(true);
+  }, [fetchUserLocation]);
   const handleSubmit = async (raw?: string) => {
     const trimmed = (raw ?? query).trim();
     if (!trimmed) {
       setPin(null);
       setSheetOpen(false);
+      setListModalVisible(false);
       return;
     }
 
@@ -107,12 +155,33 @@ export default function MapScreen() {
       if (!match) return;
 
       const { latitude, longitude } = match;
-      setPin({ lat: latitude, lng: longitude });
+      const label = buildLabel(match, trimmed);
+      setPin({ lat: latitude, lng: longitude, label });
       setSheetOpen(true);
       focusOn(latitude, longitude, { sheet: true });
     } catch (err) {
       console.warn("Geocoding failed:", err);
     }
+  };
+
+  const handleMapPress = ({ latitude, longitude }: { latitude: number; longitude: number }) => {
+    const basePin: PinData = { lat: latitude, lng: longitude, label: "Dropped pin" };
+    setPin(basePin);
+    setQuery("");
+    setSheetOpen(true);
+    focusOn(latitude, longitude, { sheet: true });
+
+    void Location.reverseGeocodeAsync({ latitude, longitude })
+      .then((results) => {
+        const name = buildLabel(results?.[0], basePin.label);
+        setPin((current) => {
+          if (!current) return current;
+          return coordsMatch(current, basePin) ? { ...current, label: name } : current;
+        });
+      })
+      .catch((err) => {
+        console.warn("Reverse geocode failed:", err);
+      });
   };
 
   return (
@@ -124,13 +193,7 @@ export default function MapScreen() {
         initialRegion={userCoords ? makeRegion(userCoords.latitude, userCoords.longitude) : WORLD}
         region={region}
         onRegionChangeComplete={setRegion}
-        onPress={({ nativeEvent }) => {
-          const { latitude, longitude } = nativeEvent.coordinate;
-          setSheetOpen(true);
-          setPin({ lat: latitude, lng: longitude });
-          setQuery("");
-          focusOn(latitude, longitude, { sheet: true });
-        }}
+        onPress={({ nativeEvent }) => handleMapPress(nativeEvent.coordinate)}
         showsScale
         showsCompass
         showsUserLocation={locPerm === "granted"}
@@ -161,6 +224,7 @@ export default function MapScreen() {
           onPress={() => {
             setPin(null);
             setSheetOpen(false);
+            setListModalVisible(false);
             setRegion(WORLD);
             animateTo(WORLD);
           }}
@@ -184,17 +248,29 @@ export default function MapScreen() {
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Selected Location</Text>
+            <Text style={styles.sheetTitle} numberOfLines={1}>
+              {pin.label}
+            </Text>
             <Pressable
               onPress={() => {
                 setSheetOpen(false);
-                if (pin) {
-                  focusOn(pin.lat, pin.lng, { sheet: false });
-                }
+                setListModalVisible(false);
+                focusOn(pin.lat, pin.lng, { sheet: false, animateMs: 300 });
               }}
               style={styles.sheetClose}
             >
               <Text style={styles.sheetCloseText}>Close</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.sheetActions}>
+            <Pressable
+              onPress={() => setListModalVisible(true)}
+              style={styles.heartButton}
+              accessibilityRole="button"
+              accessibilityLabel="Save to list"
+            >
+              <Text style={styles.heartIcon}>♡</Text>
             </Pressable>
           </View>
 
@@ -206,6 +282,31 @@ export default function MapScreen() {
           </View>
         </View>
       )}
+
+      <Modal
+        visible={listModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setListModalVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setListModalVisible(false)} />
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Save to a list</Text>
+          <FlatList
+            data={dummyLists}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.modalList}
+            renderItem={({ item }) => (
+              <Pressable
+                style={styles.modalListItem}
+                onPress={() => setListModalVisible(false)}
+              >
+                <Text style={styles.modalListText}>{item.name}</Text>
+              </Pressable>
+            )}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -319,8 +420,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16,
+    gap: 12,
   },
   sheetTitle: {
+    flex: 1,
     fontSize: 18,
     fontWeight: "700",
     color: "#0f172a",
@@ -336,6 +439,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 13,
   },
+  sheetActions: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    marginBottom: 20,
+    gap: 12,
+  },
+  heartButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heartIcon: {
+    fontSize: 22,
+    color: "#0f172a",
+  },
   sheetBody: {
     gap: 12,
   },
@@ -348,5 +470,45 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#6b7280",
     lineHeight: 18,
+  },
+  modalBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(15, 23, 42, 0.4)",
+  },
+  modalContent: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 40,
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 16,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+    marginBottom: 12,
+  },
+  modalList: {
+    paddingBottom: 4,
+  },
+  modalListItem: {
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e5e7eb",
+  },
+  modalListText: {
+    fontSize: 14,
+    color: "#1f2937",
   },
 });
