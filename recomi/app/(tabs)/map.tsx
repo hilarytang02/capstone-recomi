@@ -16,6 +16,11 @@ import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import {
+  LIST_DEFINITIONS,
+  useSavedLists,
+  type SavedEntry,
+} from "../../shared/context/savedLists";
 
 const WORLD: Region = {
   latitude: 20,
@@ -88,20 +93,12 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
+  const [activeListId, setActiveListId] = React.useState<string | null>(LIST_DEFINITIONS[0]?.id ?? null);
+  const { addEntry } = useSavedLists();
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
 
-  const dummyLists = React.useMemo(
-    () => [
-      { id: "1", name: "Weekend Brunch Spots" },
-      { id: "2", name: "Coffee Crawl" },
-      { id: "3", name: "Date Night Ideas" },
-      { id: "4", name: "Bucket List Cities" },
-      { id: "5", name: "Friend Recs" },
-      { id: "6", name: "Hidden Gems" },
-    ],
-    []
-  );
+  const lists = React.useMemo(() => LIST_DEFINITIONS, []);
 
   React.useEffect(() => {
     // Prime local state without prompting; fetchUserLocation will handle requests.
@@ -290,6 +287,11 @@ export default function MapScreen() {
   const sheetHeight = SHEET_HEIGHTS[sheetState];
   const isSheetExpanded = sheetState === "expanded";
   const isSheetCollapsed = sheetState === "collapsed";
+  React.useEffect(() => {
+    if (listModalVisible) {
+      setActiveListId((prev) => prev ?? lists[0]?.id ?? null);
+    }
+  }, [listModalVisible, lists]);
 
   return (
     <View style={styles.container}>
@@ -370,7 +372,10 @@ export default function MapScreen() {
             </Text>
             {isSheetCollapsed ? (
               <Pressable
-                onPress={() => setListModalVisible(true)}
+                onPress={() => {
+                  setActiveListId((prev) => prev ?? lists[0]?.id ?? null);
+                  setListModalVisible(true);
+                }}
                 style={[styles.heartButton, styles.heartButtonSmall]}
                 accessibilityRole="button"
                 accessibilityLabel="Save to list"
@@ -390,7 +395,10 @@ export default function MapScreen() {
           {!isSheetCollapsed && (
             <View style={styles.sheetActions}>
               <Pressable
-                onPress={() => setListModalVisible(true)}
+                onPress={() => {
+                  setActiveListId((prev) => prev ?? lists[0]?.id ?? null);
+                  setListModalVisible(true);
+                }}
                 style={styles.heartButton}
                 accessibilityRole="button"
                 accessibilityLabel="Save to list"
@@ -420,19 +428,74 @@ export default function MapScreen() {
         <Pressable style={styles.modalBackdrop} onPress={() => setListModalVisible(false)} />
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>Save to a list</Text>
-          <FlatList
-            data={dummyLists}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.modalList}
-            renderItem={({ item }) => (
-              <Pressable
-                style={styles.modalListItem}
-                onPress={() => setListModalVisible(false)}
-              >
-                <Text style={styles.modalListText}>{item.name}</Text>
-              </Pressable>
-            )}
-          />
+          <View style={styles.modalListWrapper}>
+            <FlatList
+              data={lists}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.modalList}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={styles.modalListItem}
+                  onPress={() => {
+                    setActiveListId(item.id);
+                  }}
+                >
+                  <Text style={styles.modalListText}>{item.name}</Text>
+                  <View
+                    style={[
+                      styles.modalListIndicator,
+                      activeListId === item.id && styles.modalListIndicatorSelected,
+                    ]}
+                  >
+                    {activeListId === item.id && (
+                      <Text style={styles.modalListIndicatorCheck}>✓</Text>
+                    )}
+                  </View>
+                </Pressable>
+              )}
+            />
+          </View>
+
+          <View style={styles.modalActions}>
+            <Pressable
+              style={[styles.modalActionBtn, styles.modalWishlistBtn]}
+              onPress={() => {
+                if (!pin || !activeListId) return;
+                const list = lists.find((l) => l.id === activeListId);
+                if (!list) return;
+                const entry: SavedEntry = {
+                  listId: list.id,
+                  listName: list.name,
+                  bucket: "wishlist",
+                  pin,
+                  savedAt: Date.now(),
+                };
+                addEntry(entry);
+                setListModalVisible(false);
+              }}
+            >
+              <Text style={styles.modalActionText}>Wishlist</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modalActionBtn, styles.modalFavoriteBtn]}
+              onPress={() => {
+                if (!pin || !activeListId) return;
+                const list = lists.find((l) => l.id === activeListId);
+                if (!list) return;
+                const entry: SavedEntry = {
+                  listId: list.id,
+                  listName: list.name,
+                  bucket: "favourite",
+                  pin,
+                  savedAt: Date.now(),
+                };
+                addEntry(entry);
+                setListModalVisible(false);
+              }}
+            >
+              <Text style={styles.modalActionText}>Favourite</Text>
+            </Pressable>
+          </View>
         </View>
       </Modal>
     </View>
@@ -630,7 +693,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 20,
     right: 20,
-    bottom: 40,
+    top: "25%",
+    alignSelf: "center",
     backgroundColor: "#fff",
     borderRadius: 20,
     paddingHorizontal: 20,
@@ -649,13 +713,64 @@ const styles = StyleSheet.create({
   modalList: {
     paddingBottom: 4,
   },
+  modalListWrapper: {
+    maxHeight: 220,
+  },
   modalListItem: {
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#e5e7eb",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   modalListText: {
     fontSize: 14,
     color: "#1f2937",
+  },
+  modalListIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#cbd5f5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalListIndicatorSelected: {
+    backgroundColor: "#22c55e",
+    borderColor: "#22c55e",
+  },
+  modalListIndicatorCheck: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 16,
+  },
+  modalActionBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  modalWishlistBtn: {
+    backgroundColor: "#fef3c7",
+  },
+  modalFavoriteBtn: {
+    backgroundColor: "#d1fae5",
+  },
+  modalActionText: {
+    fontWeight: "600",
+    color: "#0f172a",
+    fontSize: 14,
   },
 });
