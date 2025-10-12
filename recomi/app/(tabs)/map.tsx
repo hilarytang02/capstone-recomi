@@ -1,7 +1,9 @@
 import React from "react";
 import {
+  Dimensions,
   FlatList,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -22,7 +24,24 @@ const WORLD: Region = {
   longitudeDelta: 180,
 };
 const STREET_DELTA = 0.0025; // tighter zoom for block-level view
-const SHEET_LAT_OFFSET_FACTOR = 0.35; // push map center upward when sheet is visible
+const SHEET_LAT_OFFSET_FACTOR = 0.38; // push map center upward when sheet is visible
+
+type SheetState = "hidden" | "collapsed" | "half" | "expanded";
+
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const SHEET_HEIGHTS: Record<SheetState, number> = {
+  hidden: 0,
+  collapsed: Math.max(SCREEN_HEIGHT * 0.12, 110),
+  half: SCREEN_HEIGHT * 0.5,
+  expanded: Math.min(SCREEN_HEIGHT * 0.82, SCREEN_HEIGHT - 96),
+};
+
+const OFFSET_BY_SHEET: Record<SheetState, number> = {
+  hidden: 0,
+  collapsed: 0,
+  half: 0.18,
+  expanded: SHEET_LAT_OFFSET_FACTOR,
+};
 
 const makeRegion = (
   latitude: number,
@@ -67,7 +86,7 @@ export default function MapScreen() {
   const [query, setQuery] = React.useState("");
   const [pin, setPin] = React.useState<PinData | null>(null);
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
-  const [sheetOpen, setSheetOpen] = React.useState(false);
+  const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
@@ -98,17 +117,18 @@ export default function MapScreen() {
     (
       latitude: number,
       longitude: number,
-      opts?: { delta?: number; sheet?: boolean; animateMs?: number }
+      opts?: { delta?: number; targetSheet?: SheetState; animateMs?: number }
     ) => {
       const delta = opts?.delta ?? STREET_DELTA;
-      const offsetFactor = opts?.sheet ? SHEET_LAT_OFFSET_FACTOR : 0;
+      const targetSheet = opts?.targetSheet ?? sheetState;
+      const offsetFactor = OFFSET_BY_SHEET[targetSheet];
       const nextRegion = makeRegion(latitude, longitude, delta, offsetFactor);
       setRegion(nextRegion);
       animateTo(nextRegion, opts?.animateMs);
       setHeading(0);
       return nextRegion;
     },
-    [animateTo]
+    [animateTo, sheetState]
   );
 
   const fetchUserLocation = React.useCallback(
@@ -124,7 +144,7 @@ export default function MapScreen() {
 
         const { coords } = await Location.getCurrentPositionAsync({});
         const nextRegion = focusOn(coords.latitude, coords.longitude, {
-          sheet: sheetOpen,
+          targetSheet: sheetState,
           animateMs: animate ? 800 : 0,
         });
         setUserCoords({ latitude: coords.latitude, longitude: coords.longitude });
@@ -134,12 +154,12 @@ export default function MapScreen() {
         return null;
       }
     },
-    [focusOn, locPerm, sheetOpen]
+    [focusOn, locPerm, sheetState]
   );
 
   const goToMyLocation = React.useCallback(() => {
     setPin(null);
-    setSheetOpen(false);
+    setSheetState("hidden");
     setListModalVisible(false);
     void fetchUserLocation(true);
   }, [fetchUserLocation]);
@@ -154,7 +174,7 @@ export default function MapScreen() {
     const trimmed = (raw ?? query).trim();
     if (!trimmed) {
       setPin(null);
-      setSheetOpen(false);
+      setSheetState("hidden");
       setListModalVisible(false);
       return;
     }
@@ -167,8 +187,8 @@ export default function MapScreen() {
       const { latitude, longitude } = match;
       const label = buildLabel(match, trimmed);
       setPin({ lat: latitude, lng: longitude, label });
-      setSheetOpen(true);
-      focusOn(latitude, longitude, { sheet: true });
+      setSheetState("half");
+      focusOn(latitude, longitude, { targetSheet: "half" });
     } catch (err) {
       console.warn("Geocoding failed:", err);
     }
@@ -178,8 +198,8 @@ export default function MapScreen() {
     const basePin: PinData = { lat: latitude, lng: longitude, label: "Dropped pin" };
     setPin(basePin);
     setQuery("");
-    setSheetOpen(true);
-    focusOn(latitude, longitude, { sheet: true });
+    setSheetState("half");
+    focusOn(latitude, longitude, { targetSheet: "half" });
 
     void Location.reverseGeocodeAsync({ latitude, longitude })
       .then((results) => {
@@ -228,6 +248,49 @@ export default function MapScreen() {
     setCameraInfo((prev) => (prev ? { ...prev, heading: 0 } : prev));
   }, [cameraInfo, region.latitude, region.longitude]);
 
+  React.useEffect(() => {
+    if (!pin) {
+      setSheetState("hidden");
+    }
+  }, [pin]);
+
+  React.useEffect(() => {
+    if (sheetState === "collapsed" || sheetState === "hidden") {
+      setListModalVisible(false);
+    }
+  }, [sheetState]);
+
+  React.useEffect(() => {
+    if (!pin) return;
+    if (sheetState === "hidden") return;
+    focusOn(pin.lat, pin.lng, { targetSheet: sheetState, animateMs: 250 });
+  }, [sheetState, pin, focusOn]);
+
+  const sheetPanResponder = React.useMemo(() => {
+    const order: SheetState[] = ["hidden", "collapsed", "half", "expanded"];
+
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        Math.abs(gestureState.dy) > Math.abs(gestureState.dx) && Math.abs(gestureState.dy) > 10,
+      onPanResponderRelease: (_, gestureState) => {
+        const currentIndex = order.indexOf(sheetState);
+        if (gestureState.dy < -40) {
+          const nextIndex = Math.min(currentIndex + 1, order.length - 1);
+          const nextState = order[nextIndex];
+          setSheetState(nextState === "hidden" ? "collapsed" : nextState);
+        } else if (gestureState.dy > 40) {
+          const nextIndex = Math.max(currentIndex - 1, 0);
+          setSheetState(order[nextIndex]);
+        }
+      },
+    });
+  }, [sheetState]);
+
+  const showSearchBar = sheetState !== "expanded";
+  const sheetHeight = SHEET_HEIGHTS[sheetState];
+  const isSheetExpanded = sheetState === "expanded";
+  const isSheetCollapsed = sheetState === "collapsed";
+
   return (
     <View style={styles.container}>
       <MapView
@@ -263,16 +326,18 @@ export default function MapScreen() {
         {pin && <Marker coordinate={{ latitude: pin.lat, longitude: pin.lng }} />}
       </MapView>
 
-      <TextInput
-        placeholder="Search a place or address"
-        value={query}
-        onChangeText={setQuery}
-        onSubmitEditing={({ nativeEvent }) => handleSubmit(nativeEvent.text)}
-        style={[styles.searchBar, { top: insets.top + 16 }]}
-        blurOnSubmit
-        enablesReturnKeyAutomatically
-        returnKeyType="search"
-      />
+      {showSearchBar && (
+        <TextInput
+          placeholder="Search a place or address"
+          value={query}
+          onChangeText={setQuery}
+          onSubmitEditing={({ nativeEvent }) => handleSubmit(nativeEvent.text)}
+          style={[styles.searchBar, { top: insets.top + 16 }]}
+          blurOnSubmit
+          enablesReturnKeyAutomatically
+          returnKeyType="search"
+        />
+      )}
 
       <View style={styles.recenter}>
         <CompassButton heading={heading} onPress={handleCompassPress} />
@@ -281,42 +346,68 @@ export default function MapScreen() {
         </Pressable>
       </View>
 
-      {pin && sheetOpen && (
-        <View style={styles.sheet}>
+      {pin && sheetState !== "hidden" && (
+        <View
+          style={[
+            styles.sheet,
+            {
+              height: sheetHeight,
+              paddingTop: isSheetCollapsed ? 8 : 12,
+              paddingBottom: isSheetCollapsed ? 16 : 24,
+            },
+          ]}
+          {...sheetPanResponder.panHandlers}
+        >
           <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
+          <View
+            style={[
+              styles.sheetHeader,
+              isSheetCollapsed && styles.sheetHeaderCollapsed,
+            ]}
+          >
             <Text style={styles.sheetTitle} numberOfLines={1}>
               {pin.label}
             </Text>
-            <Pressable
-              onPress={() => {
-                setSheetOpen(false);
-                setListModalVisible(false);
-                focusOn(pin.lat, pin.lng, { sheet: false, animateMs: 300 });
-              }}
-              style={styles.sheetClose}
-            >
-              <Text style={styles.sheetCloseText}>Close</Text>
-            </Pressable>
+            {isSheetCollapsed ? (
+              <Pressable
+                onPress={() => setListModalVisible(true)}
+                style={[styles.heartButton, styles.heartButtonSmall]}
+                accessibilityRole="button"
+                accessibilityLabel="Save to list"
+              >
+                <Text style={styles.heartIcon}>♡</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => setSheetState("hidden")}
+                style={styles.sheetClose}
+              >
+                <Text style={styles.sheetCloseText}>Close</Text>
+              </Pressable>
+            )}
           </View>
 
-          <View style={styles.sheetActions}>
-            <Pressable
-              onPress={() => setListModalVisible(true)}
-              style={styles.heartButton}
-              accessibilityRole="button"
-              accessibilityLabel="Save to list"
-            >
-              <Text style={styles.heartIcon}>♡</Text>
-            </Pressable>
-          </View>
+          {!isSheetCollapsed && (
+            <View style={styles.sheetActions}>
+              <Pressable
+                onPress={() => setListModalVisible(true)}
+                style={styles.heartButton}
+                accessibilityRole="button"
+                accessibilityLabel="Save to list"
+              >
+                <Text style={styles.heartIcon}>♡</Text>
+              </Pressable>
+            </View>
+          )}
 
-          <View style={styles.sheetBody}>
-            <Text style={styles.sheetMeta}>
-              Lat {pin.lat.toFixed(5)} · Lng {pin.lng.toFixed(5)}
-            </Text>
-            <Text style={styles.sheetHint}>Future recommendation details will appear here.</Text>
-          </View>
+          {(sheetState === "half" || sheetState === "expanded") && (
+            <View style={styles.sheetBody}>
+              <Text style={styles.sheetMeta}>
+                Lat {pin.lat.toFixed(5)} · Lng {pin.lng.toFixed(5)}
+              </Text>
+              <Text style={styles.sheetHint}>Future recommendation details will appear here.</Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -443,7 +534,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: "50%",
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -454,6 +544,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 12,
+    overflow: "hidden",
   },
   sheetHandle: {
     alignSelf: "center",
@@ -469,6 +560,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 16,
     gap: 12,
+  },
+  sheetHeaderCollapsed: {
+    marginBottom: 12,
   },
   sheetTitle: {
     flex: 1,
@@ -501,6 +595,11 @@ const styles = StyleSheet.create({
     borderColor: "#d1d5db",
     alignItems: "center",
     justifyContent: "center",
+  },
+  heartButtonSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   heartIcon: {
     fontSize: 22,
