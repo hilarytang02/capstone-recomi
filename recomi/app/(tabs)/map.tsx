@@ -93,12 +93,37 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
-  const [activeListId, setActiveListId] = React.useState<string | null>(LIST_DEFINITIONS[0]?.id ?? null);
-  const { addEntry } = useSavedLists();
+  const [selectedListIds, setSelectedListIds] = React.useState<Set<string>>(() => new Set());
+  const { addEntry, entries } = useSavedLists();
+  const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
 
   const lists = React.useMemo(() => LIST_DEFINITIONS, []);
+
+  React.useEffect(() => {
+    if (!pin) {
+      setSelectedListIds(new Set());
+      setPinSaveStatus(null);
+      return;
+    }
+
+    const matches = entries.filter(
+      (entry) =>
+        Math.abs(entry.pin.lat - pin.lat) < 1e-8 &&
+        Math.abs(entry.pin.lng - pin.lng) < 1e-8
+    );
+
+    setSelectedListIds(new Set(matches.map((entry) => entry.listId)));
+
+    if (matches.some((entry) => entry.bucket === "favourite")) {
+      setPinSaveStatus("favourite");
+    } else if (matches.some((entry) => entry.bucket === "wishlist")) {
+      setPinSaveStatus("wishlist");
+    } else {
+      setPinSaveStatus(null);
+    }
+  }, [entries, pin]);
 
   React.useEffect(() => {
     // Prime local state without prompting; fetchUserLocation will handle requests.
@@ -157,6 +182,8 @@ export default function MapScreen() {
   const goToMyLocation = React.useCallback(() => {
     setPin(null);
     setSheetState("hidden");
+    setPinSaveStatus(null);
+    setSelectedListIds(new Set());
     setListModalVisible(false);
     void fetchUserLocation(true);
   }, [fetchUserLocation]);
@@ -172,6 +199,8 @@ export default function MapScreen() {
     if (!trimmed) {
       setPin(null);
       setSheetState("hidden");
+      setPinSaveStatus(null);
+      setSelectedListIds(new Set());
       setListModalVisible(false);
       return;
     }
@@ -186,6 +215,7 @@ export default function MapScreen() {
       setPin({ lat: latitude, lng: longitude, label });
       setSheetState("half");
       focusOn(latitude, longitude, { targetSheet: "half" });
+      setPinSaveStatus(null);
     } catch (err) {
       console.warn("Geocoding failed:", err);
     }
@@ -197,6 +227,8 @@ export default function MapScreen() {
     setQuery("");
     setSheetState("half");
     focusOn(latitude, longitude, { targetSheet: "half" });
+    setPinSaveStatus(null);
+    setSelectedListIds(new Set());
 
     void Location.reverseGeocodeAsync({ latitude, longitude })
       .then((results) => {
@@ -248,6 +280,7 @@ export default function MapScreen() {
   React.useEffect(() => {
     if (!pin) {
       setSheetState("hidden");
+      setPinSaveStatus(null);
     }
   }, [pin]);
 
@@ -289,7 +322,11 @@ export default function MapScreen() {
   const isSheetCollapsed = sheetState === "collapsed";
   React.useEffect(() => {
     if (listModalVisible) {
-      setActiveListId((prev) => prev ?? lists[0]?.id ?? null);
+      setSelectedListIds((prev) => {
+        if (prev.size) return new Set(prev);
+        const firstId = lists[0]?.id;
+        return firstId ? new Set([firstId]) : new Set();
+      });
     }
   }, [listModalVisible, lists]);
 
@@ -373,14 +410,23 @@ export default function MapScreen() {
             {isSheetCollapsed ? (
               <Pressable
                 onPress={() => {
-                  setActiveListId((prev) => prev ?? lists[0]?.id ?? null);
+                  setSelectedListIds((prev) => (prev.size ? new Set(prev) : new Set([lists[0]?.id ?? ""])));
                   setListModalVisible(true);
                 }}
                 style={[styles.heartButton, styles.heartButtonSmall]}
                 accessibilityRole="button"
                 accessibilityLabel="Save to list"
               >
-                <Text style={styles.heartIcon}>♡</Text>
+                <View style={[styles.heartIconWrapper, styles.heartIconWrapperSmall]}>
+                  <FontAwesome
+                    name={pinSaveStatus ? "heart" : "heart-o"}
+                    size={16}
+                    color={pinSaveStatus ? "#ef4444" : "#0f172a"}
+                  />
+                  {pinSaveStatus === "favourite" && (
+                    <Text style={[styles.heartSparkle, styles.heartSparkleSmall]}>✨</Text>
+                  )}
+                </View>
               </Pressable>
             ) : (
               <Pressable
@@ -396,14 +442,23 @@ export default function MapScreen() {
             <View style={styles.sheetActions}>
               <Pressable
                 onPress={() => {
-                  setActiveListId((prev) => prev ?? lists[0]?.id ?? null);
+                  setSelectedListIds((prev) => (prev.size ? new Set(prev) : new Set([lists[0]?.id ?? ""])));
                   setListModalVisible(true);
                 }}
                 style={styles.heartButton}
                 accessibilityRole="button"
                 accessibilityLabel="Save to list"
               >
-                <Text style={styles.heartIcon}>♡</Text>
+                <View style={styles.heartIconWrapper}>
+                  <FontAwesome
+                    name={pinSaveStatus ? "heart" : "heart-o"}
+                    size={20}
+                    color={pinSaveStatus ? "#ef4444" : "#0f172a"}
+                  />
+                  {pinSaveStatus === "favourite" && (
+                    <Text style={styles.heartSparkle}>✨</Text>
+                  )}
+                </View>
               </Pressable>
             </View>
           )}
@@ -433,26 +488,35 @@ export default function MapScreen() {
               data={lists}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.modalList}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.modalListItem}
-                  onPress={() => {
-                    setActiveListId(item.id);
-                  }}
-                >
-                  <Text style={styles.modalListText}>{item.name}</Text>
-                  <View
-                    style={[
-                      styles.modalListIndicator,
-                      activeListId === item.id && styles.modalListIndicatorSelected,
-                    ]}
+              renderItem={({ item }) => {
+                const selected = selectedListIds.has(item.id);
+                return (
+                  <Pressable
+                    style={styles.modalListItem}
+                    onPress={() => {
+                      setSelectedListIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(item.id)) {
+                          next.delete(item.id);
+                        } else {
+                          next.add(item.id);
+                        }
+                        return next;
+                      });
+                    }}
                   >
-                    {activeListId === item.id && (
-                      <Text style={styles.modalListIndicatorCheck}>✓</Text>
-                    )}
-                  </View>
-                </Pressable>
-              )}
+                    <Text style={styles.modalListText}>{item.name}</Text>
+                    <View
+                      style={[
+                        styles.modalListIndicator,
+                        selected && styles.modalListIndicatorSelected,
+                      ]}
+                    >
+                      {selected && <Text style={styles.modalListIndicatorCheck}>✓</Text>}
+                    </View>
+                  </Pressable>
+                );
+              }}
             />
           </View>
 
@@ -460,17 +524,21 @@ export default function MapScreen() {
             <Pressable
               style={[styles.modalActionBtn, styles.modalWishlistBtn]}
               onPress={() => {
-                if (!pin || !activeListId) return;
-                const list = lists.find((l) => l.id === activeListId);
-                if (!list) return;
-                const entry: SavedEntry = {
-                  listId: list.id,
-                  listName: list.name,
-                  bucket: "wishlist",
-                  pin,
-                  savedAt: Date.now(),
-                };
-                addEntry(entry);
+                if (!pin || selectedListIds.size === 0) return;
+                const timestamp = Date.now();
+                Array.from(selectedListIds).forEach((listId, index) => {
+                  const list = lists.find((l) => l.id === listId);
+                  if (!list) return;
+                  const entry: SavedEntry = {
+                    listId: list.id,
+                    listName: list.name,
+                    bucket: "wishlist",
+                    pin,
+                    savedAt: timestamp + index,
+                  };
+                  addEntry(entry);
+                });
+                setPinSaveStatus("wishlist");
                 setListModalVisible(false);
               }}
             >
@@ -479,17 +547,21 @@ export default function MapScreen() {
             <Pressable
               style={[styles.modalActionBtn, styles.modalFavoriteBtn]}
               onPress={() => {
-                if (!pin || !activeListId) return;
-                const list = lists.find((l) => l.id === activeListId);
-                if (!list) return;
-                const entry: SavedEntry = {
-                  listId: list.id,
-                  listName: list.name,
-                  bucket: "favourite",
-                  pin,
-                  savedAt: Date.now(),
-                };
-                addEntry(entry);
+                if (!pin || selectedListIds.size === 0) return;
+                const timestamp = Date.now();
+                Array.from(selectedListIds).forEach((listId, index) => {
+                  const list = lists.find((l) => l.id === listId);
+                  if (!list) return;
+                  const entry: SavedEntry = {
+                    listId: list.id,
+                    listName: list.name,
+                    bucket: "favourite",
+                    pin,
+                    savedAt: timestamp + index,
+                  };
+                  addEntry(entry);
+                });
+                setPinSaveStatus("favourite");
                 setListModalVisible(false);
               }}
             >
@@ -664,9 +736,24 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
   },
-  heartIcon: {
-    fontSize: 22,
-    color: "#0f172a",
+  heartIconWrapper: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heartIconWrapperSmall: {
+    transform: [{ scale: 0.9 }],
+  },
+  heartSparkle: {
+    position: "absolute",
+    top: -10,
+    right: -8,
+    fontSize: 14,
+  },
+  heartSparkleSmall: {
+    top: -8,
+    right: -6,
+    fontSize: 12,
   },
   sheetBody: {
     gap: 12,

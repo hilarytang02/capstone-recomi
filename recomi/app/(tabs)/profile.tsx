@@ -6,7 +6,14 @@ import {
   LIST_DEFINITIONS,
   useSavedLists,
   type SavedEntry,
+  type SavedListDefinition,
 } from '../../shared/context/savedLists';
+
+type GroupedList = {
+  definition: SavedListDefinition;
+  wishlist: SavedEntry[];
+  favourite: SavedEntry[];
+};
 
 const DEFAULT_REGION: Region = {
   latitude: 37.773972,
@@ -42,7 +49,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { entries } = useSavedLists();
 
-  const grouped = React.useMemo(() => {
+  const grouped = React.useMemo<GroupedList[]>(() => {
     return LIST_DEFINITIONS.map((definition) => {
       const related = entries.filter((entry) => entry.listId === definition.id);
       return {
@@ -68,8 +75,8 @@ export default function ProfileScreen() {
     [grouped, selectedListId],
   );
 
-  const pinsForMap = React.useMemo(() => {
-    if (!selectedGroup) return [] as SavedEntry[];
+  const pinsForMap = React.useMemo<SavedEntry[]>(() => {
+    if (!selectedGroup) return [];
     return [...selectedGroup.wishlist, ...selectedGroup.favourite];
   }, [selectedGroup]);
 
@@ -87,13 +94,13 @@ export default function ProfileScreen() {
         Tap a collection to explore its wishlist and favourites.
       </Text>
 
-      <FlatList
+      <FlatList<GroupedList>
         horizontal
         data={grouped}
         keyExtractor={(item) => item.definition.id}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.gallery}
-        renderItem={({ item }) => {
+        renderItem={({ item }: { item: GroupedList }) => {
           const total = item.wishlist.length + item.favourite.length;
           const isSelected = item.definition.id === selectedListId;
           return (
@@ -129,7 +136,7 @@ export default function ProfileScreen() {
         <View style={styles.bucketSection}>
           <Text style={styles.bucketTitle}>Wishlist</Text>
           {selectedGroup?.wishlist.length ? (
-            selectedGroup.wishlist.map((entry) => (
+            selectedGroup.wishlist.map((entry: SavedEntry) => (
               <Text key={`${entry.savedAt}-wishlist`} style={styles.bucketItem}>
                 • {entry.pin.label}
               </Text>
@@ -142,7 +149,7 @@ export default function ProfileScreen() {
         <View style={styles.bucketSection}>
           <Text style={styles.bucketTitle}>Favourite</Text>
           {selectedGroup?.favourite.length ? (
-            selectedGroup.favourite.map((entry) => (
+            selectedGroup.favourite.map((entry: SavedEntry) => (
               <Text key={`${entry.savedAt}-favourite`} style={styles.bucketItem}>
                 • {entry.pin.label}
               </Text>

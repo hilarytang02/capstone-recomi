@@ -39,7 +39,17 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   const [entries, setEntries] = React.useState<SavedEntry[]>([])
 
   const addEntry = React.useCallback((entry: SavedEntry) => {
-    setEntries((prev) => [...prev, entry])
+    setEntries((prev) => {
+      const next = prev.filter(
+        (existing) =>
+          !(
+            existing.listId === entry.listId &&
+            Math.abs(existing.pin.lat - entry.pin.lat) < 1e-8 &&
+            Math.abs(existing.pin.lng - entry.pin.lng) < 1e-8
+          )
+      )
+      return [...next, entry]
+    })
   }, [])
 
   const value = React.useMemo(() => ({ entries, addEntry }), [entries, addEntry])
