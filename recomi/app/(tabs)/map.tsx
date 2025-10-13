@@ -102,8 +102,25 @@ export default function MapScreen() {
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
+  const [bulkMovePrompt, setBulkMovePrompt] = React.useState<{
+    primaryListId: string;
+    primaryListName: string;
+    wishlistListIds: string[];
+    locationLabel: string;
+  } | null>(null);
 
   const lists = React.useMemo(() => LIST_DEFINITIONS, []);
+  const bulkMoveListNames = React.useMemo(() => {
+    if (!bulkMovePrompt) return [];
+    return bulkMovePrompt.wishlistListIds
+      .map((id) => lists.find((list) => list.id === id)?.name)
+      .filter((name): name is string => Boolean(name));
+  }, [bulkMovePrompt, lists]);
+  const bulkMoveDisplayNames = React.useMemo(
+    () => bulkMoveListNames.slice(0, 3),
+    [bulkMoveListNames]
+  );
+  const bulkMoveShowEtc = bulkMoveListNames.length > 3;
 
   React.useEffect(() => {
     if (!pin) {
@@ -186,6 +203,7 @@ export default function MapScreen() {
     setPinSaveStatus(null);
     setListModalVisible(false);
     setListActionPrompt(null);
+    setBulkMovePrompt(null);
     void fetchUserLocation(true);
   }, [fetchUserLocation]);
 
@@ -203,6 +221,7 @@ export default function MapScreen() {
       setPinSaveStatus(null);
       setListModalVisible(false);
       setListActionPrompt(null);
+      setBulkMovePrompt(null);
       return;
     }
 
@@ -218,6 +237,7 @@ export default function MapScreen() {
       focusOn(latitude, longitude, { targetSheet: "half" });
       setPinSaveStatus(null);
       setListActionPrompt(null);
+      setBulkMovePrompt(null);
     } catch (err) {
       console.warn("Geocoding failed:", err);
     }
@@ -231,6 +251,7 @@ export default function MapScreen() {
     focusOn(latitude, longitude, { targetSheet: "half" });
     setPinSaveStatus(null);
     setListActionPrompt(null);
+    setBulkMovePrompt(null);
 
     void Location.reverseGeocodeAsync({ latitude, longitude })
       .then((results) => {
@@ -283,6 +304,7 @@ export default function MapScreen() {
     if (!pin) {
       setSheetState("hidden");
       setPinSaveStatus(null);
+      setBulkMovePrompt(null);
     }
   }, [pin]);
 
@@ -290,6 +312,7 @@ export default function MapScreen() {
     if (sheetState === "collapsed" || sheetState === "hidden") {
       setListModalVisible(false);
       setListActionPrompt(null);
+      setBulkMovePrompt(null);
     }
   }, [sheetState]);
 
@@ -333,6 +356,7 @@ export default function MapScreen() {
         savedAt: Date.now(),
       };
       addEntry(entry);
+      setPinSaveStatus(bucket);
       setListActionPrompt(null);
     },
     [addEntry, pin]
@@ -348,6 +372,73 @@ export default function MapScreen() {
       setListActionPrompt(null);
     },
     [pin, removeEntry]
+  );
+
+  const requestMoveToFavourite = React.useCallback(
+    (listId: string, listName: string) => {
+      if (!pin) return;
+
+      const wishlistMatches = Array.from(
+        new Set(
+          entries
+            .filter(
+              (entry) =>
+                entry.bucket === "wishlist" &&
+                entry.listId !== listId &&
+                Math.abs(entry.pin.lat - pin.lat) < 1e-8 &&
+                Math.abs(entry.pin.lng - pin.lng) < 1e-8
+            )
+            .map((entry) => entry.listId)
+        )
+      );
+
+      if (wishlistMatches.length === 0) {
+        handleAddToList(listId, listName, "favourite");
+        return;
+      }
+
+      setListActionPrompt(null);
+      setBulkMovePrompt({
+        primaryListId: listId,
+        primaryListName: listName,
+        wishlistListIds: wishlistMatches,
+        locationLabel: pin.label,
+      });
+    },
+    [entries, handleAddToList, pin]
+  );
+
+  const handleBulkMoveDecision = React.useCallback(
+    (applyToAll: boolean) => {
+      if (!bulkMovePrompt || !pin) {
+        setBulkMovePrompt(null);
+        return;
+      }
+
+      const targetListIds = applyToAll
+        ? [bulkMovePrompt.primaryListId, ...bulkMovePrompt.wishlistListIds]
+        : [bulkMovePrompt.primaryListId];
+
+      const uniqueTargets = Array.from(new Set(targetListIds));
+      const timestamp = Date.now();
+
+      uniqueTargets.forEach((id, index) => {
+        const listDef = lists.find((list) => list.id === id);
+        if (!listDef) return;
+        const entry: SavedEntry = {
+          listId: listDef.id,
+          listName: listDef.name,
+          bucket: "favourite",
+          pin,
+          savedAt: timestamp + index,
+        };
+        addEntry(entry);
+      });
+
+      setPinSaveStatus("favourite");
+      setBulkMovePrompt(null);
+    },
+    [addEntry, bulkMovePrompt, lists, pin]
   );
 
   const showSearchBar = sheetState !== "expanded";
@@ -633,10 +724,9 @@ export default function MapScreen() {
                 <Pressable
                   style={[styles.actionModalButton, styles.actionModalFavouriteButton]}
                   onPress={() =>
-                    handleAddToList(
+                    requestMoveToFavourite(
                       listActionPrompt.listId,
-                      listActionPrompt.listName,
-                      "favourite"
+                      listActionPrompt.listName
                     )
                   }
                 >
@@ -678,6 +768,71 @@ export default function MapScreen() {
                 </Pressable>
               </View>
             )}
+          </View>
+        )}
+      </Modal>
+      <Modal
+        visible={!!bulkMovePrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBulkMovePrompt(null)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setBulkMovePrompt(null)} />
+        {bulkMovePrompt && (
+          <View style={styles.bulkModalContent}>
+            {bulkMoveListNames.length === 1 ? (
+              <>
+                <Text style={styles.bulkModalMessage}>
+                  <Text style={styles.bulkModalHighlight}>{bulkMovePrompt.locationLabel}</Text>
+                  {` is also on the wishlist of `}
+                  <Text style={styles.bulkModalListName}>{bulkMoveListNames[0]}</Text>
+                  {`.`}
+                </Text>
+                <Text style={styles.bulkModalMessageSecondary}>
+                  Move it to Favorites in that list too?
+                </Text>
+              </>
+            ) : bulkMoveListNames.length > 1 ? (
+              <>
+                <Text style={styles.bulkModalMessage}>
+                  <Text style={styles.bulkModalHighlight}>{bulkMovePrompt.locationLabel}</Text>
+                  {` is also on the wishlists of `}
+                  {bulkMoveDisplayNames.map((name, index) => (
+                    <Text key={`${name}-${index}`} style={styles.bulkModalListName}>
+                      {index > 0 ? `, ${name}` : name}
+                    </Text>
+                  ))}
+                  {bulkMoveShowEtc ? ", etc." : ""}
+                </Text>
+                <Text style={styles.bulkModalMessageSecondary}>
+                  Move it to Favorites in all of them?
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.bulkModalMessage}>
+                  <Text style={styles.bulkModalHighlight}>{bulkMovePrompt.locationLabel}</Text>
+                  {` is also in other wishlists.`}
+                </Text>
+                <Text style={styles.bulkModalMessageSecondary}>
+                  Move it to Favorites in those lists too?
+                </Text>
+              </>
+            )}
+            <View style={styles.bulkModalActions}>
+              <Pressable
+                style={[styles.bulkModalButton, styles.bulkModalButtonPrimary]}
+                onPress={() => handleBulkMoveDecision(true)}
+              >
+                <Text style={[styles.bulkModalButtonText, styles.bulkModalButtonPrimaryText]}>Yes</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.bulkModalButton, styles.bulkModalButtonSecondary]}
+                onPress={() => handleBulkMoveDecision(false)}
+              >
+                <Text style={[styles.bulkModalButtonText, styles.bulkModalButtonSecondaryText]}>No</Text>
+              </Pressable>
+            </View>
           </View>
         )}
       </Modal>
@@ -1008,5 +1163,81 @@ const styles = StyleSheet.create({
   },
   actionModalDangerButtonText: {
     color: "#991b1b",
+  },
+  bulkModalContent: {
+    position: "absolute",
+    left: 28,
+    right: 28,
+    top: "32%",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 18,
+  },
+  bulkModalHighlight: {
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  bulkModalMessage: {
+    fontSize: 14,
+    color: "#4b5563",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  bulkModalListWrapper: {
+    marginTop: 10,
+    marginBottom: 4,
+    gap: 6,
+  },
+  bulkModalBullet: {
+    fontSize: 14,
+    color: "#4b5563",
+  },
+  bulkModalListName: {
+    fontStyle: "italic",
+    color: "#0f172a",
+  },
+  bulkModalMessageSecondary: {
+    fontSize: 14,
+    color: "#0f172a",
+    textAlign: "center",
+    marginTop: 12,
+  },
+  bulkModalActions: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 12,
+    marginTop: 24,
+  },
+  bulkModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  bulkModalButtonPrimary: {
+    backgroundColor: "#fee2e2",
+  },
+  bulkModalButtonPrimaryText: {
+    color: "#b91c1c",
+  },
+  bulkModalButtonSecondary: {
+    backgroundColor: "#f1f5f9",
+  },
+  bulkModalButtonSecondaryText: {
+    color: "#0f172a",
+  },
+  bulkModalButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
   },
 });
