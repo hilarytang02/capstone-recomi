@@ -66,6 +66,8 @@ type PinData = {
   label: string;
 };
 
+type ListBucket = "none" | "wishlist" | "favourite";
+
 const buildLabel = (place: any, fallback: string) => {
   if (!place) return fallback;
   const primary =
@@ -94,12 +96,6 @@ export default function MapScreen() {
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
   const { addEntry, entries, removeEntry } = useSavedLists();
-  const [listActionPrompt, setListActionPrompt] = React.useState<{
-    listId: string;
-    listName: string;
-    currentBucket: "wishlist" | "favourite" | null;
-    locationLabel: string;
-  } | null>(null);
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
@@ -109,6 +105,8 @@ export default function MapScreen() {
     wishlistListIds: string[];
     locationLabel: string;
   } | null>(null);
+  const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
+  const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 
   const lists = React.useMemo(() => LIST_DEFINITIONS, []);
   const locationLabel = pin?.label ?? "this place";
@@ -125,8 +123,17 @@ export default function MapScreen() {
   const bulkMoveShowEtc = bulkMoveListNames.length > 3;
 
   React.useEffect(() => {
+    if (listModalVisible) {
+      setPendingListStates(initialListStates);
+      setBulkMovePrompt(null);
+    }
+  }, [initialListStates, listModalVisible]);
+
+  React.useEffect(() => {
     if (!pin) {
       setPinSaveStatus(null);
+      setInitialListStates({});
+      setPendingListStates({});
       return;
     }
 
@@ -136,6 +143,14 @@ export default function MapScreen() {
         Math.abs(entry.pin.lng - pin.lng) < 1e-8
     );
 
+    const nextInitial: Record<string, ListBucket> = {};
+    lists.forEach((list) => {
+      const match = matches.find((entry) => entry.listId === list.id);
+      nextInitial[list.id] = match?.bucket ?? "none";
+    });
+    setInitialListStates(nextInitial);
+    setPendingListStates(nextInitial);
+
     if (matches.some((entry) => entry.bucket === "favourite")) {
       setPinSaveStatus("favourite");
     } else if (matches.some((entry) => entry.bucket === "wishlist")) {
@@ -143,7 +158,7 @@ export default function MapScreen() {
     } else {
       setPinSaveStatus(null);
     }
-  }, [entries, pin]);
+  }, [entries, pin, lists]);
 
   React.useEffect(() => {
     // Prime local state without prompting; fetchUserLocation will handle requests.
@@ -204,7 +219,6 @@ export default function MapScreen() {
     setSheetState("hidden");
     setPinSaveStatus(null);
     setListModalVisible(false);
-    setListActionPrompt(null);
     setBulkMovePrompt(null);
     void fetchUserLocation(true);
   }, [fetchUserLocation]);
@@ -222,7 +236,6 @@ export default function MapScreen() {
       setSheetState("hidden");
       setPinSaveStatus(null);
       setListModalVisible(false);
-      setListActionPrompt(null);
       setBulkMovePrompt(null);
       return;
     }
@@ -238,7 +251,6 @@ export default function MapScreen() {
       setSheetState("half");
       focusOn(latitude, longitude, { targetSheet: "half" });
       setPinSaveStatus(null);
-      setListActionPrompt(null);
       setBulkMovePrompt(null);
     } catch (err) {
       console.warn("Geocoding failed:", err);
@@ -252,7 +264,6 @@ export default function MapScreen() {
     setSheetState("half");
     focusOn(latitude, longitude, { targetSheet: "half" });
     setPinSaveStatus(null);
-    setListActionPrompt(null);
     setBulkMovePrompt(null);
 
     void Location.reverseGeocodeAsync({ latitude, longitude })
@@ -311,14 +322,6 @@ export default function MapScreen() {
   }, [pin]);
 
   React.useEffect(() => {
-    if (sheetState === "collapsed" || sheetState === "hidden") {
-      setListModalVisible(false);
-      setListActionPrompt(null);
-      setBulkMovePrompt(null);
-    }
-  }, [sheetState]);
-
-  React.useEffect(() => {
     if (!pin) return;
     if (sheetState === "hidden") return;
     focusOn(pin.lat, pin.lng, { targetSheet: sheetState, animateMs: 250 });
@@ -344,87 +347,69 @@ export default function MapScreen() {
     });
   }, [sheetState]);
 
-  const handleAddToList = React.useCallback(
-    (listId: string, listName: string, bucket: "wishlist" | "favourite") => {
-      if (!pin) {
-        setListActionPrompt(null);
-        return;
-      }
-      const entry: SavedEntry = {
-        listId,
-        listName,
-        bucket,
-        pin,
-        savedAt: Date.now(),
-      };
-      addEntry(entry);
-      setPinSaveStatus(bucket);
-      setListActionPrompt(null);
+  const DOUBLE_TAP_DELAY = 250;
+  const lastTapRef = React.useRef<Record<string, number>>({});
 
-      if (bucket === "favourite") {
-        const wishlistMatches = Array.from(
-          new Set(
-            entries
-              .filter(
-                (saved) =>
-                  saved.listId !== listId &&
-                  saved.bucket === "wishlist" &&
-                  Math.abs(saved.pin.lat - pin.lat) < 1e-8 &&
-                  Math.abs(saved.pin.lng - pin.lng) < 1e-8
-              )
-              .map((saved) => saved.listId)
-          )
-        );
-
-        if (wishlistMatches.length > 0) {
-          setBulkMovePrompt({
-            primaryListId: listId,
-            primaryListName: listName,
-            wishlistListIds: wishlistMatches,
-            locationLabel,
-          });
-        }
-      }
-    },
-    [addEntry, entries, locationLabel, pin]
+  const hasPendingChanges = React.useMemo(
+    () =>
+      lists.some((list) => (pendingListStates[list.id] ?? "none") !== (initialListStates[list.id] ?? "none")),
+    [initialListStates, lists, pendingListStates]
   );
 
-  const handleRemoveFromList = React.useCallback(
-    (listId: string) => {
-      if (!pin) {
-        setListActionPrompt(null);
-        return;
+  const handleCancel = React.useCallback(() => {
+    setPendingListStates(initialListStates);
+    setBulkMovePrompt(null);
+    lastTapRef.current = {};
+    setListModalVisible(false);
+  }, [initialListStates]);
+
+  const handleDone = React.useCallback(() => {
+    if (!pin) {
+      setListModalVisible(false);
+      return;
+    }
+
+    const nextStates: Record<string, ListBucket> = { ...pendingListStates };
+    let timestamp = Date.now();
+    lists.forEach((list, index) => {
+      const initialBucket = initialListStates[list.id] ?? "none";
+      const pendingBucket = nextStates[list.id] ?? "none";
+      if (initialBucket === pendingBucket) return;
+
+      if (pendingBucket === "none") {
+        removeEntry(list.id, pin);
+      } else {
+        const entry: SavedEntry = {
+          listId: list.id,
+          listName: list.name,
+          bucket: pendingBucket,
+          pin,
+          savedAt: timestamp + index,
+        };
+        addEntry(entry);
       }
-      removeEntry(listId, pin);
-      setListActionPrompt(null);
-    },
-    [pin, removeEntry]
-  );
+    });
 
-  const requestMoveToFavorite = React.useCallback(
-    (listId: string, listName: string) => {
-      if (!pin) return;
+    setInitialListStates(nextStates);
+    setPendingListStates(nextStates);
+    setListModalVisible(false);
+    setBulkMovePrompt(null);
+  }, [addEntry, initialListStates, lists, pendingListStates, pin, removeEntry]);
 
-      const wishlistMatches = Array.from(
-        new Set(
-          entries
-            .filter(
-              (entry) =>
-                entry.bucket === "wishlist" &&
-                entry.listId !== listId &&
-                Math.abs(entry.pin.lat - pin.lat) < 1e-8 &&
-                Math.abs(entry.pin.lng - pin.lng) < 1e-8
-            )
-            .map((entry) => entry.listId)
-        )
-      );
+  const handleSingleTap = React.useCallback((listId: string) => {
+    setPendingListStates((prev) => {
+      const current = prev[listId] ?? "none";
+      const next: ListBucket = current === "wishlist" ? "none" : "wishlist";
+      return { ...prev, [listId]: next };
+    });
+  }, []);
 
-      if (wishlistMatches.length === 0) {
-        handleAddToList(listId, listName, "favourite");
-        return;
-      }
-
-      setListActionPrompt(null);
+  const maybePromptFavorites = React.useCallback(
+    (listId: string, listName: string, states: Record<string, ListBucket>) => {
+      const wishlistMatches = lists
+        .filter((list) => list.id !== listId && (states[list.id] ?? "none") === "wishlist")
+        .map((list) => list.id);
+      if (!wishlistMatches.length) return;
       setBulkMovePrompt({
         primaryListId: listId,
         primaryListName: listName,
@@ -432,41 +417,65 @@ export default function MapScreen() {
         locationLabel,
       });
     },
-    [entries, handleAddToList, locationLabel, pin]
+    [lists, locationLabel]
+  );
+
+  const handleDoubleTap = React.useCallback(
+    (listId: string, listName: string) => {
+      const nextStates = { ...pendingListStates, [listId]: "favourite" as ListBucket };
+      setPendingListStates(nextStates);
+      maybePromptFavorites(listId, listName, nextStates);
+    },
+    [maybePromptFavorites, pendingListStates]
+  );
+
+  const handleHeartPress = React.useCallback(
+    (listId: string, listName: string) => {
+      const now = Date.now();
+      const lastTap = lastTapRef.current[listId] ?? 0;
+
+      if (now - lastTap < DOUBLE_TAP_DELAY) {
+        lastTapRef.current[listId] = 0;
+        handleDoubleTap(listId, listName);
+      } else {
+        lastTapRef.current[listId] = now;
+        handleSingleTap(listId);
+      }
+    },
+    [handleDoubleTap, handleSingleTap]
   );
 
   const handleBulkMoveDecision = React.useCallback(
     (applyToAll: boolean) => {
-      if (!bulkMovePrompt || !pin) {
+      if (!bulkMovePrompt) {
         setBulkMovePrompt(null);
         return;
       }
 
-      const targetListIds = applyToAll
-        ? [bulkMovePrompt.primaryListId, ...bulkMovePrompt.wishlistListIds]
-        : [bulkMovePrompt.primaryListId];
-
-      const uniqueTargets = Array.from(new Set(targetListIds));
-      const timestamp = Date.now();
-
-      uniqueTargets.forEach((id, index) => {
-        const listDef = lists.find((list) => list.id === id);
-        if (!listDef) return;
-        const entry: SavedEntry = {
-          listId: listDef.id,
-          listName: listDef.name,
-          bucket: "favourite",
-          pin,
-          savedAt: timestamp + index,
-        };
-        addEntry(entry);
+      setPendingListStates((prev) => {
+        const next = { ...prev, [bulkMovePrompt.primaryListId]: "favourite" as ListBucket };
+        if (applyToAll) {
+          bulkMovePrompt.wishlistListIds.forEach((id) => {
+            next[id] = "favourite";
+          });
+        }
+        return next;
       });
 
-      setPinSaveStatus("favourite");
       setBulkMovePrompt(null);
     },
-    [addEntry, bulkMovePrompt, lists, pin]
+    [bulkMovePrompt]
   );
+
+  React.useEffect(() => {
+    if (sheetState === "collapsed" || sheetState === "hidden") {
+      if (listModalVisible) {
+        handleCancel();
+      }
+      setBulkMovePrompt(null);
+    }
+  }, [handleCancel, listModalVisible, sheetState]);
+
 
   const showSearchBar = sheetState !== "expanded";
   const sheetHeight = SHEET_HEIGHTS[sheetState];
@@ -552,7 +561,6 @@ export default function MapScreen() {
             {isSheetCollapsed ? (
               <Pressable
                 onPress={() => {
-                  setListActionPrompt(null);
                   setListModalVisible(true);
                 }}
                 style={[styles.heartButton, styles.heartButtonSmall]}
@@ -584,7 +592,6 @@ export default function MapScreen() {
             <View style={styles.sheetActions}>
               <Pressable
                 onPress={() => {
-                  setListActionPrompt(null);
                   setListModalVisible(true);
                 }}
                 style={styles.heartButton}
@@ -620,9 +627,9 @@ export default function MapScreen() {
         visible={listModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setListModalVisible(false)}
+        onRequestClose={handleCancel}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setListModalVisible(false)} />
+        <Pressable style={styles.modalBackdrop} onPress={handleCancel} />
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>
             Save{" "}
@@ -635,170 +642,56 @@ export default function MapScreen() {
             <FlatList
               data={lists}
               keyExtractor={(item) => item.id}
+              extraData={pendingListStates}
               contentContainerStyle={styles.modalList}
               renderItem={({ item }) => {
-                const currentBucket =
-                  pin
-                    ? entries.find(
-                        (entry) =>
-                          entry.listId === item.id &&
-                          Math.abs(entry.pin.lat - pin.lat) < 1e-8 &&
-                          Math.abs(entry.pin.lng - pin.lng) < 1e-8
-                      )?.bucket ?? null
-                    : null;
+                const currentBucket = pendingListStates[item.id] ?? "none";
                 return (
-                  <Pressable
-                    style={styles.modalListItem}
-                    onPress={() => {
-                      if (!pin) return;
-                      setListModalVisible(false);
-                      setListActionPrompt({
-                        listId: item.id,
-                        listName: item.name,
-                        currentBucket,
-                        locationLabel,
-                      });
-                    }}
-                  >
+                  <View style={styles.modalListItem}>
                     <Text style={styles.modalListText}>{item.name}</Text>
-                    <View style={styles.modalListIconWrapper}>
-                      {currentBucket === "favourite" ? (
-                        <>
+                    <Pressable
+                      style={styles.modalListHeartButton}
+                      onPress={() => handleHeartPress(item.id, item.name)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Toggle ${item.name}`}
+                      hitSlop={12}
+                    >
+                      <View style={styles.modalListIconWrapper}>
+                        {currentBucket === "favourite" ? (
+                          <>
+                            <FontAwesome name="heart" size={18} color="#ef4444" />
+                            <Text style={styles.modalListIconSparkle}>✨</Text>
+                          </>
+                        ) : currentBucket === "wishlist" ? (
                           <FontAwesome name="heart" size={18} color="#ef4444" />
-                          <Text style={styles.modalListIconSparkle}>✨</Text>
-                        </>
-                      ) : currentBucket === "wishlist" ? (
-                        <FontAwesome name="heart" size={18} color="#ef4444" />
-                      ) : (
-                        <FontAwesome name="heart-o" size={18} color="#9ca3af" />
-                      )}
-                    </View>
-                  </Pressable>
+                        ) : (
+                          <FontAwesome name="heart-o" size={18} color="#9ca3af" />
+                        )}
+                      </View>
+                    </Pressable>
+                  </View>
                 );
               }}
             />
           </View>
-
-        </View>
-      </Modal>
-      <Modal
-        visible={!!listActionPrompt}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setListActionPrompt(null)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setListActionPrompt(null)} />
-        {listActionPrompt && (
-          <View style={styles.actionModalContent}>
-            <Text style={styles.actionModalTitle}>
-              {listActionPrompt.currentBucket
-                ? listActionPrompt.locationLabel
-                : `Add ${listActionPrompt.locationLabel}`}
-            </Text>
-            <Text style={styles.actionModalSubtitle}>
-              {listActionPrompt.currentBucket
-                ? `Currently on ${listActionPrompt.listName}'s ${
-                    listActionPrompt.currentBucket === "favourite" ? "Favorites" : "Wishlist"
-                  }`
-                : `to ${listActionPrompt.listName}`}
-            </Text>
-            {listActionPrompt.currentBucket === null && (
-              <View style={styles.actionModalActions}>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalWishlistButton]}
-                  onPress={() =>
-                    handleAddToList(
-                      listActionPrompt.listId,
-                      listActionPrompt.listName,
-                      "wishlist"
-                    )
-                  }
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalWishlistButtonText]}
-                  >
-                    Wishlist
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalFavoriteButton]}
-                  onPress={() =>
-                    handleAddToList(
-                      listActionPrompt.listId,
-                      listActionPrompt.listName,
-                      "favourite"
-                    )
-                  }
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalFavoriteButtonText]}
-                  >
-                    Favorite
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-            {listActionPrompt.currentBucket === "wishlist" && (
-              <View style={styles.actionModalActions}>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalPrimaryFavoriteButton]}
-                  onPress={() =>
-                    requestMoveToFavorite(
-                      listActionPrompt.listId,
-                      listActionPrompt.listName
-                    )
-                  }
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalPrimaryFavoriteButtonText]}
-                  >
-                    {"Move to Favorite ✨"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalSecondaryButton]}
-                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalSecondaryButtonText]}
-                  >
-                    {`Remove from ${listActionPrompt.listName}`}
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-            {listActionPrompt.currentBucket === "favourite" && (
-              <View style={styles.actionModalActions}>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalPrimaryWishlistButton]}
-                  onPress={() =>
-                    handleAddToList(
-                      listActionPrompt.listId,
-                      listActionPrompt.listName,
-                      "wishlist"
-                    )
-                  }
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalPrimaryWishlistButtonText]}
-                  >
-                    Move to Wishlist
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalSecondaryButton]}
-                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalSecondaryButtonText]}
-                  >
-                    {`Remove from ${listActionPrompt.listName}`}
-                  </Text>
-                </Pressable>
-              </View>
+          <View style={styles.modalFooter}>
+            <Pressable onPress={handleCancel} hitSlop={12}>
+              <Text style={styles.modalFooterCancel}>Cancel</Text>
+            </Pressable>
+            {hasPendingChanges && (
+              <Pressable
+                onPress={handleDone}
+                style={styles.modalFooterDone}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm list changes"
+                hitSlop={12}
+              >
+                <Text style={styles.modalFooterDoneText}>Done</Text>
+              </Pressable>
             )}
           </View>
-        )}
+
+        </View>
       </Modal>
       <Modal
         visible={!!bulkMovePrompt}
@@ -1115,6 +1008,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1f2937",
   },
+  modalListHeartButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+  },
   modalListIconWrapper: {
     position: "relative",
     alignItems: "center",
@@ -1127,83 +1024,28 @@ const styles = StyleSheet.create({
     right: -8,
     fontSize: 12,
   },
-  actionModalContent: {
-    position: "absolute",
-    left: 24,
-    right: 24,
-    top: "30%",
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    paddingHorizontal: 22,
-    paddingVertical: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 18,
-  },
-  actionModalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#0f172a",
-    textAlign: "center",
-  },
-  actionModalSubtitle: {
-    fontSize: 14,
-    color: "#6b7280",
-    textAlign: "center",
-    marginTop: 6,
-    marginBottom: 20,
-  },
-  actionModalActions: {
-    gap: 12,
-  },
-  actionModalButton: {
-    borderRadius: 14,
-    paddingVertical: 14,
+  modalFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 6,
+    gap: 16,
+    marginTop: 20,
   },
-  actionModalButtonText: {
-    fontSize: 15,
+  modalFooterCancel: {
+    fontSize: 14,
+    color: "#9ca3af",
     fontWeight: "600",
   },
-  actionModalWishlistButton: {
-    backgroundColor: "#fef3c7",
+  modalFooterDone: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#1d4ed8",
   },
-  actionModalWishlistButtonText: {
-    color: "#92400e",
-  },
-  actionModalFavoriteButton: {
-    backgroundColor: "#ffe4e6",
-  },
-  actionModalFavoriteButtonText: {
-    color: "#be123c",
-  },
-  actionModalPrimaryFavoriteButton: {
-    backgroundColor: "#ffe4e6",
-    borderWidth: 1,
-    borderColor: "#fda4af",
-  },
-  actionModalPrimaryFavoriteButtonText: {
-    color: "#be123c",
-  },
-  actionModalPrimaryWishlistButton: {
-    backgroundColor: "#dbeafe",
-    borderWidth: 1,
-    borderColor: "#93c5fd",
-  },
-  actionModalPrimaryWishlistButtonText: {
-    color: "#1d4ed8",
-  },
-  actionModalSecondaryButton: {
-    backgroundColor: "#f3f4f6",
-  },
-  actionModalSecondaryButtonText: {
-    color: "#4b5563",
+  modalFooterDoneText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#fff",
   },
   bulkModalContent: {
     position: "absolute",
