@@ -98,6 +98,7 @@ export default function MapScreen() {
     listId: string;
     listName: string;
     currentBucket: "wishlist" | "favourite" | null;
+    locationLabel: string;
   } | null>(null);
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
@@ -110,6 +111,7 @@ export default function MapScreen() {
   } | null>(null);
 
   const lists = React.useMemo(() => LIST_DEFINITIONS, []);
+  const locationLabel = pin?.label ?? "this place";
   const bulkMoveListNames = React.useMemo(() => {
     if (!bulkMovePrompt) return [];
     return bulkMovePrompt.wishlistListIds
@@ -358,8 +360,33 @@ export default function MapScreen() {
       addEntry(entry);
       setPinSaveStatus(bucket);
       setListActionPrompt(null);
+
+      if (bucket === "favourite") {
+        const wishlistMatches = Array.from(
+          new Set(
+            entries
+              .filter(
+                (saved) =>
+                  saved.listId !== listId &&
+                  saved.bucket === "wishlist" &&
+                  Math.abs(saved.pin.lat - pin.lat) < 1e-8 &&
+                  Math.abs(saved.pin.lng - pin.lng) < 1e-8
+              )
+              .map((saved) => saved.listId)
+          )
+        );
+
+        if (wishlistMatches.length > 0) {
+          setBulkMovePrompt({
+            primaryListId: listId,
+            primaryListName: listName,
+            wishlistListIds: wishlistMatches,
+            locationLabel,
+          });
+        }
+      }
     },
-    [addEntry, pin]
+    [addEntry, entries, locationLabel, pin]
   );
 
   const handleRemoveFromList = React.useCallback(
@@ -374,7 +401,7 @@ export default function MapScreen() {
     [pin, removeEntry]
   );
 
-  const requestMoveToFavourite = React.useCallback(
+  const requestMoveToFavorite = React.useCallback(
     (listId: string, listName: string) => {
       if (!pin) return;
 
@@ -402,10 +429,10 @@ export default function MapScreen() {
         primaryListId: listId,
         primaryListName: listName,
         wishlistListIds: wishlistMatches,
-        locationLabel: pin.label,
+        locationLabel,
       });
     },
-    [entries, handleAddToList, pin]
+    [entries, handleAddToList, locationLabel, pin]
   );
 
   const handleBulkMoveDecision = React.useCallback(
@@ -597,7 +624,13 @@ export default function MapScreen() {
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setListModalVisible(false)} />
         <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Save to a list</Text>
+          <Text style={styles.modalTitle}>
+            Save{" "}
+            <Text style={styles.modalTitleLocation} numberOfLines={1}>
+              {locationLabel}
+            </Text>{" "}
+            to Your Lists
+          </Text>
           <View style={styles.modalListWrapper}>
             <FlatList
               data={lists}
@@ -623,31 +656,23 @@ export default function MapScreen() {
                         listId: item.id,
                         listName: item.name,
                         currentBucket,
+                        locationLabel,
                       });
                     }}
                   >
                     <Text style={styles.modalListText}>{item.name}</Text>
-                    {currentBucket ? (
-                      <View
-                        style={[
-                          styles.modalListBadge,
-                          currentBucket === "favourite"
-                            ? styles.modalListBadgeFavourite
-                            : styles.modalListBadgeWishlist,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.modalListBadgeText,
-                            currentBucket === "favourite" && styles.modalListBadgeTextFavourite,
-                          ]}
-                        >
-                          {currentBucket === "favourite" ? "Favourite" : "Wishlist"}
-                        </Text>
-                      </View>
-                    ) : (
-                      <FontAwesome name="plus" size={16} color="#0f172a" />
-                    )}
+                    <View style={styles.modalListIconWrapper}>
+                      {currentBucket === "favourite" ? (
+                        <>
+                          <FontAwesome name="heart" size={18} color="#ef4444" />
+                          <Text style={styles.modalListIconSparkle}>✨</Text>
+                        </>
+                      ) : currentBucket === "wishlist" ? (
+                        <FontAwesome name="heart" size={18} color="#ef4444" />
+                      ) : (
+                        <FontAwesome name="heart-o" size={18} color="#9ca3af" />
+                      )}
+                    </View>
                   </Pressable>
                 );
               }}
@@ -666,12 +691,16 @@ export default function MapScreen() {
         {listActionPrompt && (
           <View style={styles.actionModalContent}>
             <Text style={styles.actionModalTitle}>
-              {listActionPrompt.currentBucket ? listActionPrompt.listName : "Add to"}
+              {listActionPrompt.currentBucket
+                ? listActionPrompt.locationLabel
+                : `Add ${listActionPrompt.locationLabel}`}
             </Text>
             <Text style={styles.actionModalSubtitle}>
               {listActionPrompt.currentBucket
-                ? `Currently in ${listActionPrompt.currentBucket === "favourite" ? "Favourite" : "Wishlist"}`
-                : listActionPrompt.listName}
+                ? `Currently on ${listActionPrompt.listName}'s ${
+                    listActionPrompt.currentBucket === "favourite" ? "Favorites" : "Wishlist"
+                  }`
+                : `to ${listActionPrompt.listName}`}
             </Text>
             {listActionPrompt.currentBucket === null && (
               <View style={styles.actionModalActions}>
@@ -692,7 +721,7 @@ export default function MapScreen() {
                   </Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.actionModalButton, styles.actionModalFavouriteButton]}
+                  style={[styles.actionModalButton, styles.actionModalFavoriteButton]}
                   onPress={() =>
                     handleAddToList(
                       listActionPrompt.listId,
@@ -702,9 +731,9 @@ export default function MapScreen() {
                   }
                 >
                   <Text
-                    style={[styles.actionModalButtonText, styles.actionModalFavouriteButtonText]}
+                    style={[styles.actionModalButtonText, styles.actionModalFavoriteButtonText]}
                   >
-                    Favourite
+                    Favorite
                   </Text>
                 </Pressable>
               </View>
@@ -712,28 +741,28 @@ export default function MapScreen() {
             {listActionPrompt.currentBucket === "wishlist" && (
               <View style={styles.actionModalActions}>
                 <Pressable
-                  style={[styles.actionModalButton, styles.actionModalDangerButton]}
-                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalDangerButtonText]}
-                  >
-                    {`Remove from ${listActionPrompt.listName}`}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalFavouriteButton]}
+                  style={[styles.actionModalButton, styles.actionModalPrimaryFavoriteButton]}
                   onPress={() =>
-                    requestMoveToFavourite(
+                    requestMoveToFavorite(
                       listActionPrompt.listId,
                       listActionPrompt.listName
                     )
                   }
                 >
                   <Text
-                    style={[styles.actionModalButtonText, styles.actionModalFavouriteButtonText]}
+                    style={[styles.actionModalButtonText, styles.actionModalPrimaryFavoriteButtonText]}
                   >
-                    Move to Favourite
+                    {"Move to Favorite ✨"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalSecondaryButton]}
+                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalSecondaryButtonText]}
+                  >
+                    {`Remove from ${listActionPrompt.listName}`}
                   </Text>
                 </Pressable>
               </View>
@@ -741,17 +770,7 @@ export default function MapScreen() {
             {listActionPrompt.currentBucket === "favourite" && (
               <View style={styles.actionModalActions}>
                 <Pressable
-                  style={[styles.actionModalButton, styles.actionModalDangerButton]}
-                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
-                >
-                  <Text
-                    style={[styles.actionModalButtonText, styles.actionModalDangerButtonText]}
-                  >
-                    {`Remove from ${listActionPrompt.listName}`}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.actionModalButton, styles.actionModalWishlistButton]}
+                  style={[styles.actionModalButton, styles.actionModalPrimaryWishlistButton]}
                   onPress={() =>
                     handleAddToList(
                       listActionPrompt.listId,
@@ -761,9 +780,19 @@ export default function MapScreen() {
                   }
                 >
                   <Text
-                    style={[styles.actionModalButtonText, styles.actionModalWishlistButtonText]}
+                    style={[styles.actionModalButtonText, styles.actionModalPrimaryWishlistButtonText]}
                   >
                     Move to Wishlist
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalSecondaryButton]}
+                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalSecondaryButtonText]}
+                  >
+                    {`Remove from ${listActionPrompt.listName}`}
                   </Text>
                 </Pressable>
               </View>
@@ -1063,6 +1092,10 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     marginBottom: 12,
   },
+  modalTitleLocation: {
+    color: "#6b7280",
+    fontWeight: "600",
+  },
   modalList: {
     paddingBottom: 4,
   },
@@ -1082,25 +1115,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#1f2937",
   },
-  modalListBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "#e5e7eb",
+  modalListIconWrapper: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 20,
   },
-  modalListBadgeWishlist: {
-    backgroundColor: "#fef3c7",
-  },
-  modalListBadgeFavourite: {
-    backgroundColor: "#fee2e2",
-  },
-  modalListBadgeText: {
+  modalListIconSparkle: {
+    position: "absolute",
+    top: -10,
+    right: -8,
     fontSize: 12,
-    fontWeight: "600",
-    color: "#92400e",
-  },
-  modalListBadgeTextFavourite: {
-    color: "#b91c1c",
   },
   actionModalContent: {
     position: "absolute",
@@ -1152,17 +1177,33 @@ const styles = StyleSheet.create({
   actionModalWishlistButtonText: {
     color: "#92400e",
   },
-  actionModalFavouriteButton: {
-    backgroundColor: "#fee2e2",
+  actionModalFavoriteButton: {
+    backgroundColor: "#ffe4e6",
   },
-  actionModalFavouriteButtonText: {
-    color: "#b91c1c",
+  actionModalFavoriteButtonText: {
+    color: "#be123c",
   },
-  actionModalDangerButton: {
-    backgroundColor: "#fce8e8",
+  actionModalPrimaryFavoriteButton: {
+    backgroundColor: "#ffe4e6",
+    borderWidth: 1,
+    borderColor: "#fda4af",
   },
-  actionModalDangerButtonText: {
-    color: "#991b1b",
+  actionModalPrimaryFavoriteButtonText: {
+    color: "#be123c",
+  },
+  actionModalPrimaryWishlistButton: {
+    backgroundColor: "#dbeafe",
+    borderWidth: 1,
+    borderColor: "#93c5fd",
+  },
+  actionModalPrimaryWishlistButtonText: {
+    color: "#1d4ed8",
+  },
+  actionModalSecondaryButton: {
+    backgroundColor: "#f3f4f6",
+  },
+  actionModalSecondaryButtonText: {
+    color: "#4b5563",
   },
   bulkModalContent: {
     position: "absolute",
@@ -1225,10 +1266,10 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   bulkModalButtonPrimary: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: "#dcfce7",
   },
   bulkModalButtonPrimaryText: {
-    color: "#b91c1c",
+    color: "#166534",
   },
   bulkModalButtonSecondary: {
     backgroundColor: "#f1f5f9",
