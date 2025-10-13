@@ -31,6 +31,7 @@ export const LIST_DEFINITIONS: SavedListDefinition[] = [
 type SavedListsContextValue = {
   entries: SavedEntry[]
   addEntry: (entry: SavedEntry) => void
+  removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
 }
 
 const SavedListsContext = React.createContext<SavedListsContextValue | undefined>(undefined)
@@ -52,7 +53,23 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     })
   }, [])
 
-  const value = React.useMemo(() => ({ entries, addEntry }), [entries, addEntry])
+  const removeEntry = React.useCallback((listId: string, pin: SavedEntry["pin"]) => {
+    setEntries((prev) =>
+      prev.filter(
+        (existing) =>
+          !(
+            existing.listId === listId &&
+            Math.abs(existing.pin.lat - pin.lat) < 1e-8 &&
+            Math.abs(existing.pin.lng - pin.lng) < 1e-8
+          )
+      )
+    )
+  }, [])
+
+  const value = React.useMemo(
+    () => ({ entries, addEntry, removeEntry }),
+    [entries, addEntry, removeEntry]
+  )
 
   return <SavedListsContext.Provider value={value}>{children}</SavedListsContext.Provider>
 }

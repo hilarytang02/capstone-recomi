@@ -93,8 +93,12 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
-  const [selectedListIds, setSelectedListIds] = React.useState<Set<string>>(() => new Set());
-  const { addEntry, entries } = useSavedLists();
+  const { addEntry, entries, removeEntry } = useSavedLists();
+  const [listActionPrompt, setListActionPrompt] = React.useState<{
+    listId: string;
+    listName: string;
+    currentBucket: "wishlist" | "favourite" | null;
+  } | null>(null);
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
@@ -103,7 +107,6 @@ export default function MapScreen() {
 
   React.useEffect(() => {
     if (!pin) {
-      setSelectedListIds(new Set());
       setPinSaveStatus(null);
       return;
     }
@@ -113,8 +116,6 @@ export default function MapScreen() {
         Math.abs(entry.pin.lat - pin.lat) < 1e-8 &&
         Math.abs(entry.pin.lng - pin.lng) < 1e-8
     );
-
-    setSelectedListIds(new Set(matches.map((entry) => entry.listId)));
 
     if (matches.some((entry) => entry.bucket === "favourite")) {
       setPinSaveStatus("favourite");
@@ -183,8 +184,8 @@ export default function MapScreen() {
     setPin(null);
     setSheetState("hidden");
     setPinSaveStatus(null);
-    setSelectedListIds(new Set());
     setListModalVisible(false);
+    setListActionPrompt(null);
     void fetchUserLocation(true);
   }, [fetchUserLocation]);
 
@@ -200,8 +201,8 @@ export default function MapScreen() {
       setPin(null);
       setSheetState("hidden");
       setPinSaveStatus(null);
-      setSelectedListIds(new Set());
       setListModalVisible(false);
+      setListActionPrompt(null);
       return;
     }
 
@@ -216,6 +217,7 @@ export default function MapScreen() {
       setSheetState("half");
       focusOn(latitude, longitude, { targetSheet: "half" });
       setPinSaveStatus(null);
+      setListActionPrompt(null);
     } catch (err) {
       console.warn("Geocoding failed:", err);
     }
@@ -228,7 +230,7 @@ export default function MapScreen() {
     setSheetState("half");
     focusOn(latitude, longitude, { targetSheet: "half" });
     setPinSaveStatus(null);
-    setSelectedListIds(new Set());
+    setListActionPrompt(null);
 
     void Location.reverseGeocodeAsync({ latitude, longitude })
       .then((results) => {
@@ -287,6 +289,7 @@ export default function MapScreen() {
   React.useEffect(() => {
     if (sheetState === "collapsed" || sheetState === "hidden") {
       setListModalVisible(false);
+      setListActionPrompt(null);
     }
   }, [sheetState]);
 
@@ -316,20 +319,41 @@ export default function MapScreen() {
     });
   }, [sheetState]);
 
+  const handleAddToList = React.useCallback(
+    (listId: string, listName: string, bucket: "wishlist" | "favourite") => {
+      if (!pin) {
+        setListActionPrompt(null);
+        return;
+      }
+      const entry: SavedEntry = {
+        listId,
+        listName,
+        bucket,
+        pin,
+        savedAt: Date.now(),
+      };
+      addEntry(entry);
+      setListActionPrompt(null);
+    },
+    [addEntry, pin]
+  );
+
+  const handleRemoveFromList = React.useCallback(
+    (listId: string) => {
+      if (!pin) {
+        setListActionPrompt(null);
+        return;
+      }
+      removeEntry(listId, pin);
+      setListActionPrompt(null);
+    },
+    [pin, removeEntry]
+  );
+
   const showSearchBar = sheetState !== "expanded";
   const sheetHeight = SHEET_HEIGHTS[sheetState];
   const isSheetExpanded = sheetState === "expanded";
   const isSheetCollapsed = sheetState === "collapsed";
-  React.useEffect(() => {
-    if (listModalVisible) {
-      setSelectedListIds((prev) => {
-        if (prev.size) return new Set(prev);
-        const firstId = lists[0]?.id;
-        return firstId ? new Set([firstId]) : new Set();
-      });
-    }
-  }, [listModalVisible, lists]);
-
   return (
     <View style={styles.container}>
       <MapView
@@ -410,7 +434,7 @@ export default function MapScreen() {
             {isSheetCollapsed ? (
               <Pressable
                 onPress={() => {
-                  setSelectedListIds((prev) => (prev.size ? new Set(prev) : new Set([lists[0]?.id ?? ""])));
+                  setListActionPrompt(null);
                   setListModalVisible(true);
                 }}
                 style={[styles.heartButton, styles.heartButtonSmall]}
@@ -442,7 +466,7 @@ export default function MapScreen() {
             <View style={styles.sheetActions}>
               <Pressable
                 onPress={() => {
-                  setSelectedListIds((prev) => (prev.size ? new Set(prev) : new Set([lists[0]?.id ?? ""])));
+                  setListActionPrompt(null);
                   setListModalVisible(true);
                 }}
                 style={styles.heartButton}
@@ -489,86 +513,173 @@ export default function MapScreen() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.modalList}
               renderItem={({ item }) => {
-                const selected = selectedListIds.has(item.id);
+                const currentBucket =
+                  pin
+                    ? entries.find(
+                        (entry) =>
+                          entry.listId === item.id &&
+                          Math.abs(entry.pin.lat - pin.lat) < 1e-8 &&
+                          Math.abs(entry.pin.lng - pin.lng) < 1e-8
+                      )?.bucket ?? null
+                    : null;
                 return (
                   <Pressable
                     style={styles.modalListItem}
                     onPress={() => {
-                      setSelectedListIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(item.id)) {
-                          next.delete(item.id);
-                        } else {
-                          next.add(item.id);
-                        }
-                        return next;
+                      if (!pin) return;
+                      setListModalVisible(false);
+                      setListActionPrompt({
+                        listId: item.id,
+                        listName: item.name,
+                        currentBucket,
                       });
                     }}
                   >
                     <Text style={styles.modalListText}>{item.name}</Text>
-                    <View
-                      style={[
-                        styles.modalListIndicator,
-                        selected && styles.modalListIndicatorSelected,
-                      ]}
-                    >
-                      {selected && <Text style={styles.modalListIndicatorCheck}>✓</Text>}
-                    </View>
+                    {currentBucket ? (
+                      <View
+                        style={[
+                          styles.modalListBadge,
+                          currentBucket === "favourite"
+                            ? styles.modalListBadgeFavourite
+                            : styles.modalListBadgeWishlist,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalListBadgeText,
+                            currentBucket === "favourite" && styles.modalListBadgeTextFavourite,
+                          ]}
+                        >
+                          {currentBucket === "favourite" ? "Favourite" : "Wishlist"}
+                        </Text>
+                      </View>
+                    ) : (
+                      <FontAwesome name="plus" size={16} color="#0f172a" />
+                    )}
                   </Pressable>
                 );
               }}
             />
           </View>
 
-          <View style={styles.modalActions}>
-            <Pressable
-              style={[styles.modalActionBtn, styles.modalWishlistBtn]}
-              onPress={() => {
-                if (!pin || selectedListIds.size === 0) return;
-                const timestamp = Date.now();
-                Array.from(selectedListIds).forEach((listId, index) => {
-                  const list = lists.find((l) => l.id === listId);
-                  if (!list) return;
-                  const entry: SavedEntry = {
-                    listId: list.id,
-                    listName: list.name,
-                    bucket: "wishlist",
-                    pin,
-                    savedAt: timestamp + index,
-                  };
-                  addEntry(entry);
-                });
-                setPinSaveStatus("wishlist");
-                setListModalVisible(false);
-              }}
-            >
-              <Text style={styles.modalActionText}>Wishlist</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.modalActionBtn, styles.modalFavoriteBtn]}
-              onPress={() => {
-                if (!pin || selectedListIds.size === 0) return;
-                const timestamp = Date.now();
-                Array.from(selectedListIds).forEach((listId, index) => {
-                  const list = lists.find((l) => l.id === listId);
-                  if (!list) return;
-                  const entry: SavedEntry = {
-                    listId: list.id,
-                    listName: list.name,
-                    bucket: "favourite",
-                    pin,
-                    savedAt: timestamp + index,
-                  };
-                  addEntry(entry);
-                });
-                setPinSaveStatus("favourite");
-                setListModalVisible(false);
-              }}
-            >
-              <Text style={styles.modalActionText}>Favourite</Text>
-            </Pressable>
-          </View>
         </View>
+      </Modal>
+      <Modal
+        visible={!!listActionPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setListActionPrompt(null)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setListActionPrompt(null)} />
+        {listActionPrompt && (
+          <View style={styles.actionModalContent}>
+            <Text style={styles.actionModalTitle}>
+              {listActionPrompt.currentBucket ? listActionPrompt.listName : "Add to"}
+            </Text>
+            <Text style={styles.actionModalSubtitle}>
+              {listActionPrompt.currentBucket
+                ? `Currently in ${listActionPrompt.currentBucket === "favourite" ? "Favourite" : "Wishlist"}`
+                : listActionPrompt.listName}
+            </Text>
+            {listActionPrompt.currentBucket === null && (
+              <View style={styles.actionModalActions}>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalWishlistButton]}
+                  onPress={() =>
+                    handleAddToList(
+                      listActionPrompt.listId,
+                      listActionPrompt.listName,
+                      "wishlist"
+                    )
+                  }
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalWishlistButtonText]}
+                  >
+                    Wishlist
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalFavouriteButton]}
+                  onPress={() =>
+                    handleAddToList(
+                      listActionPrompt.listId,
+                      listActionPrompt.listName,
+                      "favourite"
+                    )
+                  }
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalFavouriteButtonText]}
+                  >
+                    Favourite
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+            {listActionPrompt.currentBucket === "wishlist" && (
+              <View style={styles.actionModalActions}>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalDangerButton]}
+                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalDangerButtonText]}
+                  >
+                    {`Remove from ${listActionPrompt.listName}`}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalFavouriteButton]}
+                  onPress={() =>
+                    handleAddToList(
+                      listActionPrompt.listId,
+                      listActionPrompt.listName,
+                      "favourite"
+                    )
+                  }
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalFavouriteButtonText]}
+                  >
+                    Move to Favourite
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+            {listActionPrompt.currentBucket === "favourite" && (
+              <View style={styles.actionModalActions}>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalDangerButton]}
+                  onPress={() => handleRemoveFromList(listActionPrompt.listId)}
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalDangerButtonText]}
+                  >
+                    {`Remove from ${listActionPrompt.listName}`}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionModalButton, styles.actionModalWishlistButton]}
+                  onPress={() =>
+                    handleAddToList(
+                      listActionPrompt.listId,
+                      listActionPrompt.listName,
+                      "wishlist"
+                    )
+                  }
+                >
+                  <Text
+                    style={[styles.actionModalButtonText, styles.actionModalWishlistButtonText]}
+                  >
+                    Move to Wishlist
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
       </Modal>
     </View>
   );
@@ -810,54 +921,92 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
   },
   modalListText: {
     fontSize: 14,
     color: "#1f2937",
   },
-  modalListIndicator: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: "#cbd5f5",
-    alignItems: "center",
-    justifyContent: "center",
+  modalListBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#e5e7eb",
   },
-  modalListIndicatorSelected: {
-    backgroundColor: "#22c55e",
-    borderColor: "#22c55e",
+  modalListBadgeWishlist: {
+    backgroundColor: "#fef3c7",
   },
-  modalListIndicatorCheck: {
-    color: "#fff",
+  modalListBadgeFavourite: {
+    backgroundColor: "#fee2e2",
+  },
+  modalListBadgeText: {
     fontSize: 12,
+    fontWeight: "600",
+    color: "#92400e",
+  },
+  modalListBadgeTextFavourite: {
+    color: "#b91c1c",
+  },
+  actionModalContent: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    top: "30%",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    paddingHorizontal: 22,
+    paddingVertical: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 18,
+  },
+  actionModalTitle: {
+    fontSize: 18,
     fontWeight: "700",
+    color: "#0f172a",
+    textAlign: "center",
   },
-  modalActions: {
-    flexDirection: "row",
+  actionModalSubtitle: {
+    fontSize: 14,
+    color: "#6b7280",
+    textAlign: "center",
+    marginTop: 6,
+    marginBottom: 20,
+  },
+  actionModalActions: {
     gap: 12,
-    marginTop: 16,
   },
-  modalActionBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+  actionModalButton: {
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  modalWishlistBtn: {
+  actionModalButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  actionModalWishlistButton: {
     backgroundColor: "#fef3c7",
   },
-  modalFavoriteBtn: {
-    backgroundColor: "#d1fae5",
+  actionModalWishlistButtonText: {
+    color: "#92400e",
   },
-  modalActionText: {
-    fontWeight: "600",
-    color: "#0f172a",
-    fontSize: 14,
+  actionModalFavouriteButton: {
+    backgroundColor: "#fee2e2",
+  },
+  actionModalFavouriteButtonText: {
+    color: "#b91c1c",
+  },
+  actionModalDangerButton: {
+    backgroundColor: "#fce8e8",
+  },
+  actionModalDangerButtonText: {
+    color: "#991b1b",
   },
 });
