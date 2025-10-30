@@ -15,7 +15,18 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hilary.recomi"
+      "bundleIdentifier": "com.hilary.recomi",
+      "googleServicesFile": "./ios/GoogleService-Info.plist",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["recomi"]
+          },
+          {
+            "CFBundleURLSchemes": ["$(EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME)"]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -32,7 +43,15 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

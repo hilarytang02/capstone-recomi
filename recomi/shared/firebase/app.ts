@@ -1,7 +1,6 @@
 import { initializeApp, getApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth, initializeAuth } from "firebase/auth";
-import { getReactNativePersistence } from "firebase/auth/react-native";
+import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type EnvValue = string | undefined;

@@ -1,7 +1,9 @@
 import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Google from "expo-auth-session/providers/google";
+import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
+import Constants from "expo-constants";
 import { GoogleAuthProvider, User, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
 
 import { auth } from "../firebase/app";
@@ -24,6 +26,7 @@ const googleClientConfig = {
   iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
   androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
   webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  iosUrlScheme: process.env.EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME,
 };
 
 function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -32,14 +35,26 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isSigningIn, setIsSigningIn] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: googleClientConfig.expoClientId,
-    iosClientId: googleClientConfig.iosClientId,
-    androidClientId: googleClientConfig.androidClientId,
-    webClientId: googleClientConfig.webClientId,
-    scopes: ["profile", "email"],
-    prompt: "select_account",
+  const useProxy = Constants.appOwnership === "expo";
+  const redirectUri = makeRedirectUri({
+    useProxy,
+    native: googleClientConfig.iosUrlScheme
+      ? `${googleClientConfig.iosUrlScheme}:/oauthredirect`
+      : undefined,
   });
+
+  const [request, response, promptAsync] = Google.useAuthRequest(
+    {
+      expoClientId: googleClientConfig.expoClientId,
+      iosClientId: googleClientConfig.iosClientId,
+      androidClientId: googleClientConfig.androidClientId,
+      webClientId: googleClientConfig.webClientId,
+      scopes: ["profile", "email"],
+      prompt: "select_account",
+      redirectUri,
+    },
+    { useProxy }
+  );
 
   React.useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
@@ -87,7 +102,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsSigningIn(true);
     try {
       await promptAsync({
-        useProxy: true,
+        useProxy,
         showInRecents: true,
       });
     } catch (err) {
