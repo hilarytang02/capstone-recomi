@@ -1,12 +1,13 @@
 import React from "react";
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Easing,
   FlatList,
-  PanResponder,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -24,6 +25,7 @@ import {
   type SavedEntry,
   type SavedListDefinition,
 } from "../../shared/context/savedLists";
+import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 
 type GroupedList = {
@@ -68,7 +70,16 @@ const computeRegion = (pins: SavedEntry[]): Region => {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { entries, lists, removeList, addList, removeEntry, requestMapFocus } = useSavedLists();
+  const { user, signOut } = useAuth();
+  const {
+    entries,
+    lists,
+    removeList,
+    addList,
+    removeEntry,
+    requestMapFocus,
+    loading: listsLoading,
+  } = useSavedLists();
   const [deleteMode, setDeleteMode] = React.useState(false);
   const wiggleAnim = React.useRef(new Animated.Value(0)).current;
   const wiggleLoop = React.useRef<Animated.CompositeAnimation | null>(null);
@@ -78,6 +89,7 @@ export default function ProfileScreen() {
   const [newListError, setNewListError] = React.useState<string | null>(null);
   const [isEditing, setIsEditing] = React.useState(false);
   const [pendingRemovals, setPendingRemovals] = React.useState<Record<string, SavedEntry>>({});
+  const [signingOut, setSigningOut] = React.useState(false);
 
   const grouped = React.useMemo<GroupedList[]>(() => {
     return lists.map((definition) => {
@@ -254,6 +266,25 @@ export default function ProfileScreen() {
     [deleteMode, isEditing, requestMapFocus, router],
   );
 
+  const handleSignOut = React.useCallback(async () => {
+    try {
+      setSigningOut(true);
+      await signOut();
+    } catch (err) {
+      console.error("Failed to sign out", err);
+    } finally {
+      setSigningOut(false);
+    }
+  }, [signOut]);
+
+  if (listsLoading) {
+    return (
+      <View style={styles.loader}>
+        <ActivityIndicator size="large" color="#0f172a" />
+      </View>
+    );
+  }
+
   const pinsForMap = React.useMemo<SavedEntry[]>(() => {
     if (!selectedGroup) return [];
     return [...selectedGroup.wishlist, ...selectedGroup.favourite];
@@ -324,10 +355,30 @@ export default function ProfileScreen() {
           { paddingTop: insets.top + 24 },
         ]}
       >
-        <Text style={styles.title}>Your Lists</Text>
-        <Text style={styles.subtitle}>
-          Tap a collection to explore its wishlist and favourites.
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.title}>Your Lists</Text>
+            {user?.email ? (
+              <Text style={styles.profileEmail}>{user.email}</Text>
+            ) : null}
+            <Text style={styles.subtitle}>
+              Tap a collection to explore its wishlist and favourites.
+            </Text>
+          </View>
+          <Pressable
+            style={styles.signOutButton}
+            onPress={handleSignOut}
+            disabled={signingOut}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+          >
+            {signingOut ? (
+              <ActivityIndicator size="small" color="#0f172a" />
+            ) : (
+              <Text style={styles.signOutLabel}>Sign out</Text>
+            )}
+          </Pressable>
+        </View>
 
         <FlatList<GroupedList>
           ref={galleryRef}
@@ -701,6 +752,12 @@ function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: Sw
 }
 
 const styles = StyleSheet.create({
+  loader: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     flexGrow: 1,
     paddingHorizontal: 24,
@@ -713,10 +770,38 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 16,
+  },
+  headerCopy: {
+    flexShrink: 1,
+    gap: 4,
+  },
   subtitle: {
     fontSize: 14,
     color: '#475569',
     marginBottom: 12,
+  },
+  profileEmail: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  signOutButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#cbd5f5',
+    backgroundColor: '#e2e8f0',
+    alignSelf: 'flex-start',
+  },
+  signOutLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
   },
   gallery: {
     gap: 12,
