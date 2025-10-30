@@ -2,6 +2,7 @@ import React from "react";
 import {
   Dimensions,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -16,6 +17,7 @@ import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { useIsFocused } from "@react-navigation/native";
 import { useSavedLists, type SavedEntry } from "../../shared/context/savedLists";
 
 const WORLD: Region = {
@@ -83,6 +85,7 @@ const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: num
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const mapRef = React.useRef<MapView | null>(null);
   const [region, setRegion] = React.useState<Region>(WORLD);
   const [locPerm, setLocPerm] = React.useState<"granted" | "denied" | "undetermined">("undetermined");
@@ -91,7 +94,7 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
-  const { addEntry, entries, removeEntry, lists } = useSavedLists();
+  const { addEntry, entries, removeEntry, lists, addList } = useSavedLists();
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
@@ -103,6 +106,9 @@ export default function MapScreen() {
   } | null>(null);
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
   const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
+  const [newListModalVisible, setNewListModalVisible] = React.useState(false);
+  const [newListName, setNewListName] = React.useState("");
+  const [newListError, setNewListError] = React.useState<string | null>(null);
 
   const locationLabel = pin?.label ?? "this place";
   const bulkMoveListNames = React.useMemo(() => {
@@ -358,6 +364,47 @@ export default function MapScreen() {
     setListModalVisible(false);
   }, [initialListStates]);
 
+  const openNewListModal = React.useCallback(() => {
+    setNewListName("");
+    setNewListError(null);
+    setNewListModalVisible(true);
+  }, []);
+
+  const closeNewListModal = React.useCallback(() => {
+    setNewListModalVisible(false);
+    setNewListError(null);
+    setNewListName("");
+  }, []);
+
+  const handleCreateNewList = React.useCallback(() => {
+    const trimmed = newListName.trim();
+    if (!trimmed) {
+      setNewListError("List name is required.");
+      return;
+    }
+
+    const duplicate = lists.some((list) => list.name.toLowerCase() === trimmed.toLowerCase());
+    if (duplicate) {
+      setNewListError("You already have a list with that name.");
+      return;
+    }
+
+    try {
+      const created = addList(trimmed);
+      setInitialListStates((prev) => ({ ...prev, [created.id]: "none" }));
+      setPendingListStates((prev) => ({
+        ...prev,
+        [created.id]: pin ? "wishlist" : "none",
+      }));
+      setNewListModalVisible(false);
+      setNewListName("");
+      setNewListError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create list.";
+      setNewListError(message);
+    }
+  }, [addList, lists, newListName, pin]);
+
   const handleDone = React.useCallback(() => {
     if (!pin) {
       setListModalVisible(false);
@@ -471,6 +518,27 @@ export default function MapScreen() {
     }
   }, [handleCancel, listModalVisible, sheetState]);
 
+  React.useEffect(() => {
+    if (isFocused) {
+      return;
+    }
+    if (listModalVisible) {
+      handleCancel();
+    }
+    if (newListModalVisible) {
+      closeNewListModal();
+    }
+    if (bulkMovePrompt) {
+      setBulkMovePrompt(null);
+    }
+  }, [
+    bulkMovePrompt,
+    closeNewListModal,
+    handleCancel,
+    isFocused,
+    listModalVisible,
+    newListModalVisible,
+  ]);
 
   const showSearchBar = sheetState !== "expanded";
   const sheetHeight = SHEET_HEIGHTS[sheetState];
@@ -639,6 +707,23 @@ export default function MapScreen() {
               keyExtractor={(item) => item.id}
               extraData={pendingListStates}
               contentContainerStyle={styles.modalList}
+              ListEmptyComponent={() => (
+                <View style={styles.modalEmptyState}>
+                  <Text style={styles.modalEmptyTitle}>No lists yet</Text>
+                  <Text style={styles.modalEmptySubtitle}>
+                    Create one to start saving your places.
+                  </Text>
+                  <Pressable
+                    onPress={openNewListModal}
+                    style={styles.modalEmptyButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Create a new list"
+                  >
+                    <FontAwesome name="plus" size={16} color="#0f172a" />
+                    <Text style={styles.modalEmptyButtonText}>New List</Text>
+                  </Pressable>
+                </View>
+              )}
               renderItem={({ item }) => {
                 const currentBucket = pendingListStates[item.id] ?? "none";
                 return (
@@ -670,9 +755,21 @@ export default function MapScreen() {
             />
           </View>
           <View style={styles.modalFooter}>
-            <Pressable onPress={handleCancel} hitSlop={12}>
-              <Text style={styles.modalFooterCancel}>Cancel</Text>
-            </Pressable>
+            <View style={styles.modalFooterLeft}>
+              <Pressable
+                onPress={openNewListModal}
+                style={styles.modalNewListButton}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Create a new list"
+              >
+                <FontAwesome name="plus" size={14} color="#0f172a" />
+                <Text style={styles.modalNewListText}>List</Text>
+              </Pressable>
+              <Pressable onPress={handleCancel} hitSlop={12}>
+                <Text style={styles.modalFooterCancel}>Cancel</Text>
+              </Pressable>
+            </View>
             {hasPendingChanges && (
               <Pressable
                 onPress={handleDone}
@@ -687,6 +784,50 @@ export default function MapScreen() {
           </View>
 
         </View>
+      </Modal>
+      <Modal
+        visible={newListModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeNewListModal}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeNewListModal} />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.newListModalWrapper}
+        >
+          <View style={styles.newListModal}>
+            <Text style={styles.newListTitle}>Create a new list</Text>
+            <TextInput
+              value={newListName}
+              onChangeText={(text) => {
+                setNewListName(text);
+                if (newListError) setNewListError(null);
+              }}
+              placeholder="Name your list"
+              style={styles.newListInput}
+              autoFocus
+              maxLength={50}
+              returnKeyType="done"
+              onSubmitEditing={handleCreateNewList}
+            />
+            {newListError && <Text style={styles.newListError}>{newListError}</Text>}
+            <View style={styles.newListActions}>
+              <Pressable
+                onPress={closeNewListModal}
+                style={[styles.newListButton, styles.newListButtonSecondary]}
+              >
+                <Text style={styles.newListButtonSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleCreateNewList}
+                style={[styles.newListButton, styles.newListButtonPrimary]}
+              >
+                <Text style={styles.newListButtonPrimaryText}>Create</Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
       <Modal
         visible={!!bulkMovePrompt}
@@ -1019,12 +1160,68 @@ const styles = StyleSheet.create({
     right: -8,
     fontSize: 12,
   },
+  modalEmptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 24,
+    gap: 12,
+  },
+  modalEmptyTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  modalEmptySubtitle: {
+    fontSize: 13,
+    color: "#4b5563",
+    textAlign: "center",
+    paddingHorizontal: 20,
+  },
+  modalEmptyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5f5",
+    backgroundColor: "#f8fafc",
+  },
+  modalEmptyButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
   modalFooter: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 20,
+  },
+  modalFooterLeft: {
+    flexDirection: "row",
     alignItems: "center",
     gap: 16,
-    marginTop: 20,
+  },
+  modalNewListButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#cbd5f5",
+  },
+  modalNewListText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0f172a",
+    textTransform: "uppercase",
+    letterSpacing: 1,
   },
   modalFooterCancel: {
     fontSize: 14,
@@ -1041,6 +1238,67 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#fff",
+  },
+  newListModalWrapper: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  newListModal: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    paddingVertical: 22,
+    paddingHorizontal: 24,
+    gap: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    elevation: 12,
+  },
+  newListTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  newListInput: {
+    borderWidth: 1,
+    borderColor: "#cbd5f5",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#0f172a",
+  },
+  newListError: {
+    fontSize: 13,
+    color: "#ef4444",
+  },
+  newListActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 8,
+  },
+  newListButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  newListButtonSecondary: {
+    backgroundColor: "#e2e8f0",
+  },
+  newListButtonPrimary: {
+    backgroundColor: "#6366f1",
+  },
+  newListButtonSecondaryText: {
+    color: "#0f172a",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  newListButtonPrimaryText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "600",
   },
   bulkModalContent: {
     position: "absolute",

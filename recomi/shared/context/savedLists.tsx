@@ -33,7 +33,7 @@ type SavedListsContextValue = {
   entries: SavedEntry[]
   addEntry: (entry: SavedEntry) => void
   removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
-  addList: (definition: SavedListDefinition) => void
+  addList: (name: string) => SavedListDefinition
   removeList: (listId: string) => void
 }
 
@@ -70,8 +70,19 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     )
   }, [])
 
-  const addList = React.useCallback((definition: SavedListDefinition) => {
+  const addList = React.useCallback((name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) {
+      throw new Error("List name must not be empty")
+    }
+
+    const definition: SavedListDefinition = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name: trimmed,
+    }
+
     setLists((prev) => [...prev, definition])
+    return definition
   }, [])
 
   const removeList = React.useCallback((listId: string) => {
