@@ -109,6 +109,7 @@ export default function MapScreen() {
   const [newListModalVisible, setNewListModalVisible] = React.useState(false);
   const [newListName, setNewListName] = React.useState("");
   const [newListError, setNewListError] = React.useState<string | null>(null);
+  const reopenListModalRef = React.useRef(false);
 
   const locationLabel = pin?.label ?? "this place";
   const bulkMoveListNames = React.useMemo(() => {
@@ -367,14 +368,25 @@ export default function MapScreen() {
   const openNewListModal = React.useCallback(() => {
     setNewListName("");
     setNewListError(null);
+    reopenListModalRef.current = listModalVisible;
+    setListModalVisible(false);
     setNewListModalVisible(true);
-  }, []);
+  }, [listModalVisible]);
 
-  const closeNewListModal = React.useCallback(() => {
-    setNewListModalVisible(false);
-    setNewListError(null);
-    setNewListName("");
-  }, []);
+  const closeNewListModal = React.useCallback(
+    (options?: { reopenList?: boolean }) => {
+      const reopen =
+        options?.reopenList !== undefined ? options.reopenList : reopenListModalRef.current;
+      setNewListModalVisible(false);
+      setNewListError(null);
+      setNewListName("");
+      if (reopen && pin) {
+        setListModalVisible(true);
+      }
+      reopenListModalRef.current = false;
+    },
+    [pin],
+  );
 
   const handleCreateNewList = React.useCallback(() => {
     const trimmed = newListName.trim();
@@ -396,14 +408,12 @@ export default function MapScreen() {
         ...prev,
         [created.id]: pin ? "wishlist" : "none",
       }));
-      setNewListModalVisible(false);
-      setNewListName("");
-      setNewListError(null);
+      closeNewListModal({ reopenList: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create list.";
       setNewListError(message);
     }
-  }, [addList, lists, newListName, pin]);
+  }, [addList, closeNewListModal, lists, newListName, pin]);
 
   const handleDone = React.useCallback(() => {
     if (!pin) {
@@ -526,7 +536,7 @@ export default function MapScreen() {
       handleCancel();
     }
     if (newListModalVisible) {
-      closeNewListModal();
+      closeNewListModal({ reopenList: false });
     }
     if (bulkMovePrompt) {
       setBulkMovePrompt(null);
@@ -789,9 +799,12 @@ export default function MapScreen() {
         visible={newListModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={closeNewListModal}
+        onRequestClose={() => closeNewListModal({ reopenList: true })}
       >
-        <Pressable style={styles.modalBackdrop} onPress={closeNewListModal} />
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => closeNewListModal({ reopenList: true })}
+        />
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={styles.newListModalWrapper}
@@ -814,7 +827,7 @@ export default function MapScreen() {
             {newListError && <Text style={styles.newListError}>{newListError}</Text>}
             <View style={styles.newListActions}>
               <Pressable
-                onPress={closeNewListModal}
+                onPress={() => closeNewListModal({ reopenList: true })}
                 style={[styles.newListButton, styles.newListButtonSecondary]}
               >
                 <Text style={styles.newListButtonSecondaryText}>Cancel</Text>
