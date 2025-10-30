@@ -18,6 +18,7 @@ import {
 import MapView, { Marker, type Region } from "../../components/MapView";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
 import {
   useSavedLists,
   type SavedEntry,
@@ -66,7 +67,8 @@ const computeRegion = (pins: SavedEntry[]): Region => {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { entries, lists, removeList, addList, removeEntry } = useSavedLists();
+  const router = useRouter();
+  const { entries, lists, removeList, addList, removeEntry, requestMapFocus } = useSavedLists();
   const [deleteMode, setDeleteMode] = React.useState(false);
   const wiggleAnim = React.useRef(new Animated.Value(0)).current;
   const wiggleLoop = React.useRef<Animated.CompositeAnimation | null>(null);
@@ -238,6 +240,18 @@ export default function ProfileScreen() {
       });
     },
     [],
+  );
+
+  const handleEntryPress = React.useCallback(
+    (entry: SavedEntry) => {
+      if (isEditing || deleteMode) return;
+      setPendingRemovals({});
+      setIsEditing(false);
+      setDeleteMode(false);
+      requestMapFocus(entry);
+      router.push("/map");
+    },
+    [deleteMode, isEditing, requestMapFocus, router],
   );
 
   const pinsForMap = React.useMemo<SavedEntry[]>(() => {
@@ -449,6 +463,7 @@ export default function ProfileScreen() {
                     editing={isEditing}
                     marked={Boolean(pendingRemovals[entryKey])}
                     onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                    onPress={() => handleEntryPress(entry)}
                   />
                 );
               })
@@ -469,6 +484,7 @@ export default function ProfileScreen() {
                     editing={isEditing}
                     marked={Boolean(pendingRemovals[entryKey])}
                     onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                    onPress={() => handleEntryPress(entry)}
                   />
                 );
               })
@@ -551,11 +567,12 @@ type SwipeStrikeItemProps = {
   editing: boolean;
   marked: boolean;
   onMarkedChange: (marked: boolean) => void;
+  onPress?: () => void;
 };
 
 const STRIKE_THRESHOLD = 60;
 
-function SwipeStrikeItem({ label, editing, marked, onMarkedChange }: SwipeStrikeItemProps) {
+function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: SwipeStrikeItemProps) {
   const strikeProgress = React.useRef(new Animated.Value(marked ? 1 : 0)).current;
   const [contentWidth, setContentWidth] = React.useState(0);
 
@@ -639,6 +656,8 @@ function SwipeStrikeItem({ label, editing, marked, onMarkedChange }: SwipeStrike
     [editing, marked, onMarkedChange, strikeProgress],
   );
 
+  const showPressable = Boolean(onPress);
+
   return (
     <Animated.View
       style={[
@@ -647,22 +666,28 @@ function SwipeStrikeItem({ label, editing, marked, onMarkedChange }: SwipeStrike
       ]}
       {...(editing ? panResponder.panHandlers : {})}
     >
-      <View
-        style={styles.bucketItemContent}
-        onLayout={(event) => setContentWidth(event.nativeEvent.layout.width)}
+      <Pressable
+        disabled={!showPressable || editing}
+        onPress={onPress}
+        style={styles.bucketItemPressable}
       >
-        <Text style={styles.bucketItem}>{label}</Text>
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.bucketStrikeThrough,
-            {
-              width: strikeWidth,
-              opacity: strikeProgress,
-            },
-          ]}
-        />
-      </View>
+        <View
+          style={styles.bucketItemContent}
+          onLayout={(event) => setContentWidth(event.nativeEvent.layout.width)}
+        >
+          <Text style={styles.bucketItem}>{label}</Text>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.bucketStrikeThrough,
+              {
+                width: strikeWidth,
+                opacity: strikeProgress,
+              },
+            ]}
+          />
+        </View>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -842,6 +867,9 @@ const styles = StyleSheet.create({
   },
   bucketItemWrapperEditing: {
     paddingVertical: 10,
+  },
+  bucketItemPressable: {
+    borderRadius: 8,
   },
   bucketItemContent: {
     position: 'relative',

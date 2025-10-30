@@ -94,7 +94,7 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
-  const { addEntry, entries, removeEntry, lists, addList } = useSavedLists();
+  const { addEntry, entries, removeEntry, lists, addList, mapFocusEntry, clearMapFocus } = useSavedLists();
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
@@ -189,6 +189,20 @@ export default function MapScreen() {
     },
     [animateTo, sheetState]
   );
+
+  React.useEffect(() => {
+    if (!isFocused) return;
+    if (!mapFocusEntry) return;
+
+    const { pin: entryPin } = mapFocusEntry;
+    setListModalVisible(false);
+    setBulkMovePrompt(null);
+    setQuery("");
+    setSheetState("half");
+    setPin({ lat: entryPin.lat, lng: entryPin.lng, label: entryPin.label });
+    focusOn(entryPin.lat, entryPin.lng, { targetSheet: "half", animateMs: 600 });
+    clearMapFocus();
+  }, [clearMapFocus, focusOn, isFocused, mapFocusEntry]);
 
   const fetchUserLocation = React.useCallback(
     async (animate = true) => {

@@ -35,6 +35,9 @@ type SavedListsContextValue = {
   removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
   addList: (name: string) => SavedListDefinition
   removeList: (listId: string) => void
+  requestMapFocus: (entry: SavedEntry) => void
+  mapFocusEntry: SavedEntry | null
+  clearMapFocus: () => void
 }
 
 const SavedListsContext = React.createContext<SavedListsContextValue | undefined>(undefined)
@@ -90,9 +93,39 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     setEntries((prev) => prev.filter((entry) => entry.listId !== listId))
   }, [])
 
+  const [mapFocusEntry, setMapFocusEntry] = React.useState<SavedEntry | null>(null)
+
+  const requestMapFocus = React.useCallback((entry: SavedEntry) => {
+    setMapFocusEntry(entry)
+  }, [])
+
+  const clearMapFocus = React.useCallback(() => {
+    setMapFocusEntry(null)
+  }, [])
+
   const value = React.useMemo(
-    () => ({ lists, entries, addEntry, removeEntry, addList, removeList }),
-    [lists, entries, addEntry, removeEntry, addList, removeList]
+    () => ({
+      lists,
+      entries,
+      addEntry,
+      removeEntry,
+      addList,
+      removeList,
+      requestMapFocus,
+      mapFocusEntry,
+      clearMapFocus,
+    }),
+    [
+      lists,
+      entries,
+      addEntry,
+      removeEntry,
+      addList,
+      removeList,
+      requestMapFocus,
+      mapFocusEntry,
+      clearMapFocus,
+    ]
   )
 
   return <SavedListsContext.Provider value={value}>{children}</SavedListsContext.Provider>
