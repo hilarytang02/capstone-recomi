@@ -414,7 +414,15 @@ export default function ProfileScreen() {
                       <Text style={styles.deleteBadgeText}>−</Text>
                     </Pressable>
                   )}
-                  <Text style={styles.galleryTitle}>{item.definition.name}</Text>
+                  <View style={styles.galleryTitleWrapper}>
+                    <Text
+                      style={styles.galleryTitle}
+                      numberOfLines={2}
+                      ellipsizeMode="tail"
+                    >
+                      {item.definition.name}
+                    </Text>
+                  </View>
                   <Text style={styles.galleryCount}>{total} saved places</Text>
                 </Pressable>
               </Animated.View>
@@ -725,6 +733,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     backgroundColor: '#e2e8f0',
+    minHeight: 130,
+    justifyContent: 'space-between',
   },
   galleryCardSelected: {
     backgroundColor: '#c7d2fe',
@@ -733,6 +743,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#0f172a',
+    lineHeight: 20,
+  },
+  galleryTitleWrapper: {
+    minHeight: 44,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
   },
   galleryCount: {
     marginTop: 4,
