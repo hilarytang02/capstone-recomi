@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   FlatList,
+  PanResponder,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -29,6 +30,9 @@ type GroupedList = {
   wishlist: SavedEntry[];
   favourite: SavedEntry[];
 };
+
+const makeEntryKey = (entry: SavedEntry) =>
+  `${entry.listId}-${entry.bucket}-${entry.savedAt}`;
 
 const DEFAULT_REGION: Region = {
   latitude: 37.773972,
@@ -62,7 +66,7 @@ const computeRegion = (pins: SavedEntry[]): Region => {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { entries, lists, removeList, addList } = useSavedLists();
+  const { entries, lists, removeList, addList, removeEntry } = useSavedLists();
   const [deleteMode, setDeleteMode] = React.useState(false);
   const wiggleAnim = React.useRef(new Animated.Value(0)).current;
   const wiggleLoop = React.useRef<Animated.CompositeAnimation | null>(null);
@@ -70,6 +74,8 @@ export default function ProfileScreen() {
   const [newListModalVisible, setNewListModalVisible] = React.useState(false);
   const [newListName, setNewListName] = React.useState("");
   const [newListError, setNewListError] = React.useState<string | null>(null);
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [pendingRemovals, setPendingRemovals] = React.useState<Record<string, SavedEntry>>({});
 
   const grouped = React.useMemo<GroupedList[]>(() => {
     return lists.map((definition) => {
@@ -143,6 +149,8 @@ export default function ProfileScreen() {
         setNewListModalVisible(false);
         setNewListName("");
         setNewListError(null);
+        setIsEditing(false);
+        setPendingRemovals({});
       };
     }, [wiggleAnim]),
   );
@@ -151,6 +159,8 @@ export default function ProfileScreen() {
     setNewListName("");
     setNewListError(null);
     setDeleteMode(false);
+    setIsEditing(false);
+    setPendingRemovals({});
     setNewListModalVisible(true);
   }, []);
 
@@ -213,6 +223,23 @@ export default function ProfileScreen() {
     [grouped, selectedListId],
   );
 
+  const markEntryForRemoval = React.useCallback(
+    (entry: SavedEntry, marked: boolean) => {
+      const key = makeEntryKey(entry);
+      setPendingRemovals((prev) => {
+        if (marked) {
+          if (prev[key]) return prev;
+          return { ...prev, [key]: entry };
+        }
+        if (!prev[key]) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    },
+    [],
+  );
+
   const pinsForMap = React.useMemo<SavedEntry[]>(() => {
     if (!selectedGroup) return [];
     return [...selectedGroup.wishlist, ...selectedGroup.favourite];
@@ -220,6 +247,60 @@ export default function ProfileScreen() {
 
   const regionForMap = React.useMemo(() => computeRegion(pinsForMap), [pinsForMap]);
   const hasLists = grouped.length > 0;
+  const hasPendingRemovals = React.useMemo(
+    () => Object.keys(pendingRemovals).length > 0,
+    [pendingRemovals],
+  );
+  const totalItems = pinsForMap.length;
+
+  React.useEffect(() => {
+    if (!Object.keys(pendingRemovals).length) return;
+    const validKeys = new Set(entries.map(makeEntryKey));
+    setPendingRemovals((prev) => {
+      if (!Object.keys(prev).length) return prev;
+      let changed = false;
+      const next: Record<string, SavedEntry> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        if (validKeys.has(key)) {
+          next[key] = value;
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [entries]);
+
+  React.useEffect(() => {
+    setIsEditing(false);
+    setPendingRemovals({});
+  }, [selectedListId]);
+
+  const toggleEditing = React.useCallback(() => {
+    if (!totalItems) {
+      return;
+    }
+    if (isEditing) {
+      setIsEditing(false);
+      setPendingRemovals({});
+    } else {
+      setDeleteMode(false);
+      setIsEditing(true);
+    }
+  }, [isEditing, totalItems]);
+
+  const handleCancelEditing = React.useCallback(() => {
+    setPendingRemovals({});
+    setIsEditing(false);
+  }, []);
+
+  const handleConfirmRemovals = React.useCallback(() => {
+    Object.values(pendingRemovals).forEach((entry) => {
+      removeEntry(entry.listId, entry.pin);
+    });
+    setPendingRemovals({});
+    setIsEditing(false);
+  }, [pendingRemovals, removeEntry]);
 
   return (
     <>
@@ -293,10 +374,16 @@ export default function ProfileScreen() {
                       setDeleteMode(false);
                       return;
                     }
+                    if (isEditing) {
+                      setIsEditing(false);
+                      setPendingRemovals({});
+                    }
                     setSelectedListId(item.definition.id);
                   }}
                   onLongPress={() => {
                     setDeleteMode(true);
+                    setIsEditing(false);
+                    setPendingRemovals({});
                     setSelectedListId(item.definition.id);
                   }}
                   delayLongPress={250}
@@ -322,7 +409,18 @@ export default function ProfileScreen() {
         />
 
         <View style={styles.detailSection}>
-          <Text style={styles.sectionTitle}>{selectedGroup?.definition.name ?? 'List details'}</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{selectedGroup?.definition.name ?? 'List details'}</Text>
+            {!!totalItems && (
+              <Pressable
+                style={[styles.editButton, isEditing && styles.editButtonActive]}
+                hitSlop={10}
+                onPress={toggleEditing}
+              >
+                <FontAwesome name="pencil" size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
+              </Pressable>
+            )}
+          </View>
           <MapView
             key={selectedListId ?? 'none'}
             style={styles.detailMap}
@@ -342,11 +440,18 @@ export default function ProfileScreen() {
           <View style={styles.bucketSection}>
             <Text style={styles.bucketTitle}>Wishlist</Text>
             {selectedGroup?.wishlist.length ? (
-              selectedGroup.wishlist.map((entry: SavedEntry) => (
-                <Text key={`${entry.savedAt}-wishlist`} style={styles.bucketItem}>
-                  • {entry.pin.label}
-                </Text>
-              ))
+              selectedGroup.wishlist.map((entry: SavedEntry) => {
+                const entryKey = makeEntryKey(entry);
+                return (
+                  <SwipeStrikeItem
+                    key={entryKey}
+                    label={`• ${entry.pin.label}`}
+                    editing={isEditing}
+                    marked={Boolean(pendingRemovals[entryKey])}
+                    onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                  />
+                );
+              })
             ) : (
               <Text style={styles.emptyState}>No wishlist saves yet.</Text>
             )}
@@ -355,15 +460,41 @@ export default function ProfileScreen() {
           <View style={styles.bucketSection}>
             <Text style={styles.bucketTitle}>Favourite</Text>
             {selectedGroup?.favourite.length ? (
-              selectedGroup.favourite.map((entry: SavedEntry) => (
-                <Text key={`${entry.savedAt}-favourite`} style={styles.bucketItem}>
-                  • {entry.pin.label}
-                </Text>
-              ))
+              selectedGroup.favourite.map((entry: SavedEntry) => {
+                const entryKey = makeEntryKey(entry);
+                return (
+                  <SwipeStrikeItem
+                    key={entryKey}
+                    label={`• ${entry.pin.label}`}
+                    editing={isEditing}
+                    marked={Boolean(pendingRemovals[entryKey])}
+                    onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                  />
+                );
+              })
             ) : (
               <Text style={styles.emptyState}>No favourite saves yet.</Text>
             )}
           </View>
+
+          {isEditing && (
+            <View style={styles.editActions}>
+              <Pressable onPress={handleCancelEditing} style={styles.editCancelButton} hitSlop={12}>
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </Pressable>
+              {hasPendingRemovals && (
+                <Pressable
+                  onPress={handleConfirmRemovals}
+                  style={styles.editDoneButton}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm deletions"
+                >
+                  <Text style={styles.editDoneText}>Done</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
         </View>
       </ScrollView>
 
@@ -412,6 +543,127 @@ export default function ProfileScreen() {
         </KeyboardAvoidingView>
       </Modal>
     </>
+  );
+}
+
+type SwipeStrikeItemProps = {
+  label: string;
+  editing: boolean;
+  marked: boolean;
+  onMarkedChange: (marked: boolean) => void;
+};
+
+const STRIKE_THRESHOLD = 60;
+
+function SwipeStrikeItem({ label, editing, marked, onMarkedChange }: SwipeStrikeItemProps) {
+  const strikeProgress = React.useRef(new Animated.Value(marked ? 1 : 0)).current;
+  const [contentWidth, setContentWidth] = React.useState(0);
+
+  const strikeWidth = React.useMemo(
+    () =>
+      strikeProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, Math.max(contentWidth, 1)],
+      }),
+    [contentWidth, strikeProgress],
+  );
+
+  React.useEffect(() => {
+    Animated.timing(strikeProgress, {
+      toValue: editing && marked ? 1 : 0,
+      duration: 160,
+      useNativeDriver: false,
+    }).start();
+  }, [editing, marked, strikeProgress]);
+
+  const panResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          editing &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
+          Math.abs(gestureState.dx) > 6,
+        onPanResponderMove: (_, gestureState) => {
+          if (!editing) return;
+          const offset = gestureState.dx;
+          if (offset >= 0) {
+            const clamped = Math.min(STRIKE_THRESHOLD * 1.5, offset);
+            const progress = Math.min(1, Math.max(0, clamped / STRIKE_THRESHOLD));
+            strikeProgress.setValue(progress);
+          } else {
+            const clamped = Math.max(-STRIKE_THRESHOLD * 1.5, offset);
+            const progress = Math.min(1, Math.max(0, 1 + clamped / STRIKE_THRESHOLD));
+            strikeProgress.setValue(progress);
+          }
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (!editing) return;
+          const offset = gestureState.dx;
+          if (offset >= STRIKE_THRESHOLD) {
+            Animated.timing(strikeProgress, {
+              toValue: 1,
+              duration: 180,
+              useNativeDriver: false,
+            }).start();
+            onMarkedChange(true);
+          } else if (offset <= -STRIKE_THRESHOLD) {
+            Animated.timing(strikeProgress, {
+              toValue: 0,
+              duration: 140,
+              useNativeDriver: false,
+            }).start(() => {
+              onMarkedChange(false);
+            });
+          } else {
+            const target = marked ? 1 : 0;
+            Animated.timing(strikeProgress, {
+              toValue: target,
+              duration: 140,
+              useNativeDriver: false,
+            }).start();
+          }
+        },
+        onPanResponderTerminate: (_, gestureState) => {
+          const offset = gestureState.dx;
+          if (offset >= STRIKE_THRESHOLD) {
+            strikeProgress.setValue(1);
+            onMarkedChange(true);
+          } else if (offset <= -STRIKE_THRESHOLD) {
+            strikeProgress.setValue(0);
+            onMarkedChange(false);
+          } else {
+            strikeProgress.setValue(marked ? 1 : 0);
+          }
+        },
+      }),
+    [editing, marked, onMarkedChange, strikeProgress],
+  );
+
+  return (
+    <Animated.View
+      style={[
+        styles.bucketItemWrapper,
+        editing && styles.bucketItemWrapperEditing,
+      ]}
+      {...(editing ? panResponder.panHandlers : {})}
+    >
+      <View
+        style={styles.bucketItemContent}
+        onLayout={(event) => setContentWidth(event.nativeEvent.layout.width)}
+      >
+        <Text style={styles.bucketItem}>{label}</Text>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.bucketStrikeThrough,
+            {
+              width: strikeWidth,
+              opacity: strikeProgress,
+            },
+          ]}
+        />
+      </View>
+    </Animated.View>
   );
 }
 
@@ -548,6 +800,26 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  editButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#cbd5f5',
+    backgroundColor: '#f8fafc',
+  },
+  editButtonActive: {
+    backgroundColor: '#6366f1',
+    borderColor: '#6366f1',
+  },
   detailMap: {
     height: 220,
     borderRadius: 16,
@@ -564,10 +836,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569',
   },
+  bucketItemWrapper: {
+    paddingVertical: 6,
+    position: 'relative',
+  },
+  bucketItemWrapperEditing: {
+    paddingVertical: 10,
+  },
+  bucketItemContent: {
+    position: 'relative',
+    paddingHorizontal: 4,
+  },
+  bucketStrikeThrough: {
+    position: 'absolute',
+    height: 2,
+    backgroundColor: '#cbd5f5',
+    top: '50%',
+    marginTop: -1,
+    borderRadius: 999,
+    left: 0,
+  },
   emptyState: {
     fontSize: 13,
     color: '#94a3b8',
     fontStyle: 'italic',
+  },
+  editActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  editCancelButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#e2e8f0',
+  },
+  editCancelText: {
+    color: '#0f172a',
+    fontWeight: '600',
+  },
+  editDoneButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: '#6366f1',
+  },
+  editDoneText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
