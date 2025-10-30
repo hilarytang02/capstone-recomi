@@ -1,13 +1,22 @@
-import React from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, type Region } from '../../components/MapView';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import React from "react";
 import {
-  LIST_DEFINITIONS,
+  Alert,
+  Animated,
+  Easing,
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import MapView, { Marker, type Region } from "../../components/MapView";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
   useSavedLists,
   type SavedEntry,
   type SavedListDefinition,
-} from '../../shared/context/savedLists';
+} from "../../shared/context/savedLists";
 
 type GroupedList = {
   definition: SavedListDefinition;
@@ -47,10 +56,13 @@ const computeRegion = (pins: SavedEntry[]): Region => {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const { entries } = useSavedLists();
+  const { entries, lists, removeList } = useSavedLists();
+  const [deleteMode, setDeleteMode] = React.useState(false);
+  const wiggleAnim = React.useRef(new Animated.Value(0)).current;
+  const wiggleLoop = React.useRef<Animated.CompositeAnimation | null>(null);
 
   const grouped = React.useMemo<GroupedList[]>(() => {
-    return LIST_DEFINITIONS.map((definition) => {
+    return lists.map((definition) => {
       const related = entries.filter((entry) => entry.listId === definition.id);
       return {
         definition,
@@ -58,17 +70,59 @@ export default function ProfileScreen() {
         favourite: related.filter((entry) => entry.bucket === 'favourite'),
       };
     });
-  }, [entries]);
+  }, [entries, lists]);
 
   const [selectedListId, setSelectedListId] = React.useState(
-    LIST_DEFINITIONS[0]?.id ?? null,
+    lists[0]?.id ?? null,
   );
 
   React.useEffect(() => {
-    if (!selectedListId && LIST_DEFINITIONS.length) {
-      setSelectedListId(LIST_DEFINITIONS[0].id);
+    if (!lists.length) {
+      setSelectedListId(null);
+      setDeleteMode(false);
+      return;
     }
-  }, [selectedListId]);
+
+    if (!selectedListId || !lists.some((list) => list.id === selectedListId)) {
+      setSelectedListId(lists[0].id);
+    }
+  }, [lists, selectedListId]);
+
+  React.useEffect(() => {
+    if (!deleteMode) return;
+
+    wiggleLoop.current?.stop();
+    wiggleLoop.current = Animated.loop(
+      Animated.sequence([
+        Animated.timing(wiggleAnim, {
+          toValue: 1,
+          duration: 140,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(wiggleAnim, {
+          toValue: -1,
+          duration: 140,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    wiggleLoop.current.start();
+
+    return () => {
+      wiggleLoop.current?.stop();
+    };
+  }, [deleteMode, wiggleAnim]);
+
+  React.useEffect(() => {
+    if (deleteMode) {
+      return;
+    }
+
+    wiggleLoop.current?.stop();
+    wiggleAnim.setValue(0);
+  }, [deleteMode, wiggleAnim]);
 
   const selectedGroup = React.useMemo(
     () => grouped.find((group) => group.definition.id === selectedListId),
@@ -103,14 +157,70 @@ export default function ProfileScreen() {
         renderItem={({ item }: { item: GroupedList }) => {
           const total = item.wishlist.length + item.favourite.length;
           const isSelected = item.definition.id === selectedListId;
+          const cardWiggleStyle = deleteMode
+            ? {
+                transform: [
+                  {
+                    rotate: wiggleAnim.interpolate({
+                      inputRange: [-1, 1],
+                      outputRange: ['-2deg', '2deg'],
+                    }),
+                  },
+                ],
+              }
+            : undefined;
+
+          const promptRemoval = () => {
+            Alert.alert(
+              'Remove list?',
+              `Are you sure you want to remove "${item.definition.name}"?`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Remove',
+                  style: 'destructive',
+                  onPress: () => {
+                    removeList(item.definition.id);
+                    setDeleteMode(false);
+                  },
+                },
+              ],
+            );
+          };
+
           return (
-            <Pressable
-              style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
-              onPress={() => setSelectedListId(item.definition.id)}
-            >
-              <Text style={styles.galleryTitle}>{item.definition.name}</Text>
-              <Text style={styles.galleryCount}>{total} saved places</Text>
-            </Pressable>
+            <Animated.View style={[styles.galleryCardWrapper, cardWiggleStyle]}>
+              <Pressable
+                style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
+                onPress={() => {
+                  if (deleteMode) {
+                    setDeleteMode(false);
+                    return;
+                  }
+                  setSelectedListId(item.definition.id);
+                }}
+                onLongPress={() => {
+                  setDeleteMode(true);
+                  setSelectedListId(item.definition.id);
+                }}
+                delayLongPress={250}
+              >
+                {deleteMode && (
+                  <Pressable
+                    style={styles.deleteBadge}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      promptRemoval();
+                    }}
+                    hitSlop={8}
+                  >
+                    <Text style={styles.deleteBadgeText}>−</Text>
+                  </Pressable>
+                )}
+                <Text style={styles.galleryTitle}>{item.definition.name}</Text>
+                <Text style={styles.galleryCount}>{total} saved places</Text>
+              </Pressable>
+            </Animated.View>
           );
         }}
       />
@@ -185,6 +295,9 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 8,
   },
+  galleryCardWrapper: {
+    position: 'relative',
+  },
   galleryCard: {
     width: 200,
     padding: 16,
@@ -203,6 +316,27 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     color: '#475569',
+  },
+  deleteBadge: {
+    position: 'absolute',
+    top: -10,
+    left: -10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  deleteBadgeText: {
+    color: '#ffffff',
+    fontSize: 20,
+    lineHeight: 22,
+    fontWeight: '700',
   },
   detailSection: {
     backgroundColor: '#ffffff',

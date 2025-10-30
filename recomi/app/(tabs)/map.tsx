@@ -16,11 +16,7 @@ import * as Location from "expo-location";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import {
-  LIST_DEFINITIONS,
-  useSavedLists,
-  type SavedEntry,
-} from "../../shared/context/savedLists";
+import { useSavedLists, type SavedEntry } from "../../shared/context/savedLists";
 
 const WORLD: Region = {
   latitude: 20,
@@ -95,7 +91,7 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
-  const { addEntry, entries, removeEntry } = useSavedLists();
+  const { addEntry, entries, removeEntry, lists } = useSavedLists();
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
@@ -108,7 +104,6 @@ export default function MapScreen() {
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
   const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 
-  const lists = React.useMemo(() => LIST_DEFINITIONS, []);
   const locationLabel = pin?.label ?? "this place";
   const bulkMoveListNames = React.useMemo(() => {
     if (!bulkMovePrompt) return [];

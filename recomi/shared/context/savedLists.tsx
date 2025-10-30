@@ -19,7 +19,7 @@ export type SavedEntry = {
   savedAt: number
 }
 
-export const LIST_DEFINITIONS: SavedListDefinition[] = [
+const INITIAL_LIST_DEFINITIONS: SavedListDefinition[] = [
   { id: "1", name: "Weekend Brunch Spots" },
   { id: "2", name: "Coffee Crawl" },
   { id: "3", name: "Date Night Ideas" },
@@ -29,14 +29,18 @@ export const LIST_DEFINITIONS: SavedListDefinition[] = [
 ]
 
 type SavedListsContextValue = {
+  lists: SavedListDefinition[]
   entries: SavedEntry[]
   addEntry: (entry: SavedEntry) => void
   removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
+  addList: (definition: SavedListDefinition) => void
+  removeList: (listId: string) => void
 }
 
 const SavedListsContext = React.createContext<SavedListsContextValue | undefined>(undefined)
 
 export function SavedListsProvider({ children }: { children: React.ReactNode }) {
+  const [lists, setLists] = React.useState<SavedListDefinition[]>(INITIAL_LIST_DEFINITIONS)
   const [entries, setEntries] = React.useState<SavedEntry[]>([])
 
   const addEntry = React.useCallback((entry: SavedEntry) => {
@@ -66,9 +70,18 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     )
   }, [])
 
+  const addList = React.useCallback((definition: SavedListDefinition) => {
+    setLists((prev) => [...prev, definition])
+  }, [])
+
+  const removeList = React.useCallback((listId: string) => {
+    setLists((prev) => prev.filter((list) => list.id !== listId))
+    setEntries((prev) => prev.filter((entry) => entry.listId !== listId))
+  }, [])
+
   const value = React.useMemo(
-    () => ({ entries, addEntry, removeEntry }),
-    [entries, addEntry, removeEntry]
+    () => ({ lists, entries, addEntry, removeEntry, addList, removeList }),
+    [lists, entries, addEntry, removeEntry, addList, removeList]
   )
 
   return <SavedListsContext.Provider value={value}>{children}</SavedListsContext.Provider>
