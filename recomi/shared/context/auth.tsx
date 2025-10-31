@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
 import * as Google from "expo-auth-session/providers/google";
 import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
@@ -166,13 +166,17 @@ function AuthLanding({
   error: string | null;
 }) {
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <Text style={styles.title}>Welcome to Recomi</Text>
-        <Text style={styles.subtitle}>
-          Sign in with Google to access your saved places across devices.
-        </Text>
+    <SafeAreaView style={styles.authRoot}>
+      <View style={styles.heroSection}>
+        <View style={styles.brandMark}>
+          <Text style={styles.brandInitial}>R</Text>
+        </View>
+        <Text style={styles.heroTitle}>Recomi</Text>
+      </View>
+
+      <View style={styles.authSheet}>
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
         <Pressable
           onPress={onSignIn}
           style={styles.signInButton}
@@ -190,59 +194,71 @@ function AuthLanding({
           )}
         </Pressable>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  authRoot: {
     flex: 1,
-    backgroundColor: "#f1f5f9",
+    backgroundColor: "#f8fafc",
+  },
+  heroSection: {
+    flex: 4,
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    paddingHorizontal: 32,
+    backgroundColor: "#f8fafc",
   },
-  content: {
-    width: "100%",
-    maxWidth: 360,
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
+  brandMark: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#6366f1",
     alignItems: "center",
-    gap: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 6,
+    justifyContent: "center",
+    marginBottom: 18,
   },
-  title: {
-    fontSize: 24,
+  brandInitial: {
+    fontSize: 32,
     fontWeight: "700",
-    color: "#0f172a",
-    textAlign: "center",
+    color: "#fff",
   },
-  subtitle: {
-    fontSize: 15,
-    color: "#475569",
-    textAlign: "center",
+  heroTitle: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#0f172a",
+    letterSpacing: 0.5,
+  },
+  authSheet: {
+    flex: 1.5,
+    backgroundColor: "#0f172a",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    justifyContent: "flex-end",
   },
   errorText: {
     fontSize: 13,
-    color: "#ef4444",
+    color: "#fca5a5",
     textAlign: "center",
+    marginBottom: 12,
   },
   signInButton: {
-    marginTop: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
     borderRadius: 999,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 20,
-    backgroundColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
     width: "100%",
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
   },
   signInLabel: {
     fontSize: 16,
@@ -250,9 +266,9 @@ const styles = StyleSheet.create({
     color: "#0f172a",
   },
   googleChip: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
@@ -260,6 +276,7 @@ const styles = StyleSheet.create({
   googleLetter: {
     fontWeight: "700",
     color: "#ea4335",
+    fontSize: 18,
   },
 });
 

@@ -24,6 +24,7 @@ import {
   useSavedLists,
   type SavedEntry,
   type SavedListDefinition,
+  LIST_VISIBILITY_OPTIONS,
 } from "../../shared/context/savedLists";
 import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
@@ -36,6 +37,7 @@ type GroupedList = {
 
 const makeEntryKey = (entry: SavedEntry) =>
   `${entry.listId}-${entry.bucket}-${entry.savedAt}`;
+
 
 const DEFAULT_REGION: Region = {
   latitude: 37.773972,
@@ -87,6 +89,7 @@ export default function ProfileScreen() {
   const [newListModalVisible, setNewListModalVisible] = React.useState(false);
   const [newListName, setNewListName] = React.useState("");
   const [newListError, setNewListError] = React.useState<string | null>(null);
+  const [newListVisibility, setNewListVisibility] = React.useState<SavedListDefinition["visibility"]>("public");
   const [isEditing, setIsEditing] = React.useState(false);
   const [pendingRemovals, setPendingRemovals] = React.useState<Record<string, SavedEntry>>({});
   const [signingOut, setSigningOut] = React.useState(false);
@@ -175,12 +178,14 @@ export default function ProfileScreen() {
     setDeleteMode(false);
     setIsEditing(false);
     setPendingRemovals({});
+    setNewListVisibility("public");
     setNewListModalVisible(true);
   }, []);
 
   const closeNewListModal = React.useCallback(() => {
     setNewListModalVisible(false);
     setNewListError(null);
+    setNewListVisibility("public");
   }, []);
 
   const handleCreateList = React.useCallback(() => {
@@ -197,10 +202,11 @@ export default function ProfileScreen() {
     }
 
     try {
-      const created = addList(trimmed);
+      const created = addList(trimmed, newListVisibility);
       setSelectedListId(created.id);
       setNewListModalVisible(false);
       setNewListError(null);
+      setNewListVisibility("public");
       setTimeout(() => {
         galleryRef.current?.scrollToEnd({ animated: true });
       }, 150);
@@ -474,7 +480,26 @@ export default function ProfileScreen() {
                       {item.definition.name}
                     </Text>
                   </View>
-                  <Text style={styles.galleryCount}>{total} saved places</Text>
+                  <View style={styles.galleryMeta}>
+                    <Text style={styles.galleryCount}>{total} saved places</Text>
+                    <View
+                      style={[
+                        styles.visibilityTag,
+                        item.definition.visibility === 'public'
+                          ? styles.visibilityTagPublic
+                          : item.definition.visibility === 'followers'
+                          ? styles.visibilityTagFollowers
+                          : styles.visibilityTagPrivate,
+                      ]}
+                    >
+                      <Text style={styles.visibilityTagLabel}>
+                        {
+                          LIST_VISIBILITY_OPTIONS.find((opt) => opt.value === item.definition.visibility)
+                            ?.label ?? 'Public'
+                        }
+                      </Text>
+                    </View>
+                  </View>
                 </Pressable>
               </Animated.View>
             );
@@ -600,6 +625,31 @@ export default function ProfileScreen() {
               onSubmitEditing={handleCreateList}
             />
             {newListError && <Text style={styles.newListError}>{newListError}</Text>}
+            <View style={styles.visibilitySection}>
+              <Text style={styles.visibilityHeading}>Visibility</Text>
+              <View style={styles.visibilityOptionsRow}>
+                {LIST_VISIBILITY_OPTIONS.map((option) => {
+                  const active = newListVisibility === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      onPress={() => setNewListVisibility(option.value)}
+                      style={[styles.visibilityChip, active && styles.visibilityChipActive]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`${option.label} visibility`}
+                    >
+                      <Text
+                        style={[styles.visibilityChipLabel, active && styles.visibilityChipLabelActive]}
+                      >
+                        {option.label}
+                      </Text>
+                      <Text style={styles.visibilityChipHelper}>{option.helper}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
             <View style={styles.newListActions}>
               <Pressable
                 onPress={closeNewListModal}
@@ -840,6 +890,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#475569',
   },
+  galleryMeta: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  visibilityTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  visibilityTagPrivate: {
+    backgroundColor: '#e2e8f0',
+  },
+  visibilityTagFollowers: {
+    backgroundColor: '#fcd34d',
+  },
+  visibilityTagPublic: {
+    backgroundColor: '#bbf7d0',
+  },
+  visibilityTagLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#0f172a',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
   galleryAddCard: {
     width: 140,
     height: 120,
@@ -1053,6 +1133,45 @@ const styles = StyleSheet.create({
   newListError: {
     fontSize: 13,
     color: '#ef4444',
+  },
+  visibilitySection: {
+    marginTop: 16,
+    gap: 12,
+  },
+  visibilityHeading: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  visibilityOptionsRow: {
+    gap: 10,
+    flexDirection: 'column',
+  },
+  visibilityChip: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#f8fafc',
+    gap: 4,
+    width: '100%',
+  },
+  visibilityChipActive: {
+    borderColor: '#6366f1',
+    backgroundColor: '#eef2ff',
+  },
+  visibilityChipLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  visibilityChipLabelActive: {
+    color: '#4338ca',
+  },
+  visibilityChipHelper: {
+    fontSize: 12,
+    color: '#64748b',
   },
   newListActions: {
     flexDirection: 'row',

@@ -18,7 +18,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
-import { useSavedLists, type SavedEntry } from "../../shared/context/savedLists";
+import {
+  useSavedLists,
+  type SavedEntry,
+  type SavedListDefinition,
+  LIST_VISIBILITY_OPTIONS,
+} from "../../shared/context/savedLists";
 
 const WORLD: Region = {
   latitude: 20,
@@ -105,11 +110,12 @@ export default function MapScreen() {
     locationLabel: string;
   } | null>(null);
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
-  const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
-  const [newListModalVisible, setNewListModalVisible] = React.useState(false);
-  const [newListName, setNewListName] = React.useState("");
-  const [newListError, setNewListError] = React.useState<string | null>(null);
-  const reopenListModalRef = React.useRef(false);
+const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
+const [newListModalVisible, setNewListModalVisible] = React.useState(false);
+const [newListName, setNewListName] = React.useState("");
+const [newListError, setNewListError] = React.useState<string | null>(null);
+const [newListVisibility, setNewListVisibility] = React.useState<SavedListDefinition["visibility"]>("public");
+const reopenListModalRef = React.useRef(false);
 
   const locationLabel = pin?.label ?? "this place";
   const bulkMoveListNames = React.useMemo(() => {
@@ -384,6 +390,7 @@ export default function MapScreen() {
     setNewListError(null);
     reopenListModalRef.current = listModalVisible;
     setListModalVisible(false);
+    setNewListVisibility("public");
     setNewListModalVisible(true);
   }, [listModalVisible]);
 
@@ -394,6 +401,7 @@ export default function MapScreen() {
       setNewListModalVisible(false);
       setNewListError(null);
       setNewListName("");
+      setNewListVisibility("public");
       if (reopen && pin) {
         setListModalVisible(true);
       }
@@ -416,18 +424,19 @@ export default function MapScreen() {
     }
 
     try {
-      const created = addList(trimmed);
+      const created = addList(trimmed, newListVisibility);
       setInitialListStates((prev) => ({ ...prev, [created.id]: "none" }));
       setPendingListStates((prev) => ({
         ...prev,
         [created.id]: pin ? "wishlist" : "none",
       }));
+      setNewListVisibility("public");
       closeNewListModal({ reopenList: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create list.";
       setNewListError(message);
     }
-  }, [addList, closeNewListModal, lists, newListName, pin]);
+  }, [addList, closeNewListModal, lists, newListName, newListVisibility, pin]);
 
   const handleDone = React.useCallback(() => {
     if (!pin) {
@@ -839,6 +848,31 @@ export default function MapScreen() {
               onSubmitEditing={handleCreateNewList}
             />
             {newListError && <Text style={styles.newListError}>{newListError}</Text>}
+            <View style={styles.modalVisibilitySection}>
+              <Text style={styles.modalVisibilityHeading}>Visibility</Text>
+              <View style={styles.modalVisibilityOptions}>
+                {LIST_VISIBILITY_OPTIONS.map((option) => {
+                  const active = newListVisibility === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      onPress={() => setNewListVisibility(option.value)}
+                      style={[styles.modalVisibilityChip, active && styles.modalVisibilityChipActive]}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`${option.label} visibility`}
+                    >
+                      <Text
+                        style={[styles.modalVisibilityChipLabel, active && styles.modalVisibilityChipLabelActive]}
+                      >
+                        {option.label}
+                      </Text>
+                      <Text style={styles.modalVisibilityChipHelper}>{option.helper}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
             <View style={styles.newListActions}>
               <Pressable
                 onPress={() => closeNewListModal({ reopenList: true })}
@@ -1299,6 +1333,44 @@ const styles = StyleSheet.create({
   newListError: {
     fontSize: 13,
     color: "#ef4444",
+  },
+  modalVisibilitySection: {
+    marginTop: 16,
+    gap: 12,
+  },
+  modalVisibilityHeading: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  modalVisibilityOptions: {
+    gap: 10,
+    flexDirection: "column",
+  },
+  modalVisibilityChip: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#f8fafc",
+    gap: 4,
+  },
+  modalVisibilityChipActive: {
+    borderColor: "#6366f1",
+    backgroundColor: "#eef2ff",
+  },
+  modalVisibilityChipLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  modalVisibilityChipLabelActive: {
+    color: "#4338ca",
+  },
+  modalVisibilityChipHelper: {
+    fontSize: 12,
+    color: "#64748b",
   },
   newListActions: {
     flexDirection: "row",

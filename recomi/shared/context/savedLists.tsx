@@ -9,6 +9,7 @@ export type SavedListDefinition = {
   name: string
   description?: string
   coverImage?: string
+  visibility: "private" | "followers" | "public"
 }
 
 export type SavedEntry = {
@@ -23,13 +24,35 @@ export type SavedEntry = {
   savedAt: number
 }
 
+export const LIST_VISIBILITY_OPTIONS: Array<{
+  value: SavedListDefinition["visibility"]
+  label: string
+  helper: string
+}> = [
+  {
+    value: "public",
+    label: "Public",
+    helper: "Visible to anyone with the link.",
+  },
+  {
+    value: "followers",
+    label: "Followers",
+    helper: "Only people who follow you can see it.",
+  },
+  {
+    value: "private",
+    label: "Private",
+    helper: "Only you can see this list.",
+  },
+]
+
 const INITIAL_LIST_DEFINITIONS: SavedListDefinition[] = [
-  { id: "1", name: "Weekend Brunch Spots" },
-  { id: "2", name: "Coffee Crawl" },
-  { id: "3", name: "Date Night Ideas" },
-  { id: "4", name: "Bucket List Cities" },
-  { id: "5", name: "Friend Recs" },
-  { id: "6", name: "Hidden Gems" },
+  { id: "1", name: "Weekend Brunch Spots", visibility: "public" },
+  { id: "2", name: "Coffee Crawl", visibility: "public" },
+  { id: "3", name: "Date Night Ideas", visibility: "public" },
+  { id: "4", name: "Bucket List Cities", visibility: "public" },
+  { id: "5", name: "Friend Recs", visibility: "public" },
+  { id: "6", name: "Hidden Gems", visibility: "public" },
 ]
 
 type SavedListsContextValue = {
@@ -37,7 +60,7 @@ type SavedListsContextValue = {
   entries: SavedEntry[]
   addEntry: (entry: SavedEntry) => void
   removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
-  addList: (name: string) => SavedListDefinition
+  addList: (name: string, visibility?: SavedListDefinition["visibility"]) => SavedListDefinition
   removeList: (listId: string) => void
   requestMapFocus: (entry: SavedEntry) => void
   mapFocusEntry: SavedEntry | null
@@ -59,8 +82,11 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     isHydratedRef.current = false
 
     if (!user) {
-      setLists(INITIAL_LIST_DEFINITIONS)
-      setEntries([])
+    setLists(INITIAL_LIST_DEFINITIONS)
+    setEntries([])
+    setTimeout(() => {
+      isHydratedRef.current = true
+    }, 0)
       setLoading(false)
       return
     }
@@ -76,7 +102,14 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
             entries?: SavedEntry[]
           }
 
-          setLists(data.lists?.length ? data.lists : INITIAL_LIST_DEFINITIONS)
+          const nextLists = (data.lists?.length ? data.lists : INITIAL_LIST_DEFINITIONS).map(
+            (list) => ({
+              ...list,
+              visibility: list.visibility ?? "public",
+            })
+          )
+
+          setLists(nextLists)
           setEntries(Array.isArray(data.entries) ? data.entries : [])
         } else {
           setLists(INITIAL_LIST_DEFINITIONS)
@@ -156,7 +189,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   )
 
   const addList = React.useCallback(
-    (name: string) => {
+    (name: string, visibility: SavedListDefinition["visibility"] = "private") => {
       const trimmed = name.trim()
       if (!trimmed) {
         throw new Error("List name must not be empty")
@@ -168,6 +201,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       const definition: SavedListDefinition = {
         id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
         name: trimmed,
+        visibility,
       }
 
       setLists((prev) => {
