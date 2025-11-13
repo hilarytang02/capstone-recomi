@@ -506,96 +506,98 @@ export default function ProfileScreen() {
           }}
         />
 
-        <View style={styles.detailSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{selectedGroup?.definition.name ?? 'List details'}</Text>
-            {!!totalItems && (
-              <Pressable
-                style={[styles.editButton, isEditing && styles.editButtonActive]}
-                hitSlop={10}
-                onPress={toggleEditing}
-              >
-                <FontAwesome name="pencil" size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
-              </Pressable>
-            )}
-          </View>
-          <MapView
-            key={selectedListId ?? 'none'}
-            style={styles.detailMap}
-            region={regionForMap}
-            initialRegion={regionForMap}
-          >
-            {pinsForMap.map((entry) => (
-              <Marker
-                key={`${entry.listId}-${entry.bucket}-${entry.savedAt}`}
-                coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
-                title={entry.pin.label}
-                pinColor={entry.bucket === 'wishlist' ? '#f59e0b' : '#22c55e'}
-              />
-            ))}
-          </MapView>
-
-          <View style={styles.bucketSection}>
-            <Text style={styles.bucketTitle}>Wishlist</Text>
-            {selectedGroup?.wishlist.length ? (
-              selectedGroup.wishlist.map((entry: SavedEntry) => {
-                const entryKey = makeEntryKey(entry);
-                return (
-                  <SwipeStrikeItem
-                    key={entryKey}
-                    label={`• ${entry.pin.label}`}
-                    editing={isEditing}
-                    marked={Boolean(pendingRemovals[entryKey])}
-                    onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
-                    onPress={() => handleEntryPress(entry)}
-                  />
-                );
-              })
-            ) : (
-              <Text style={styles.emptyState}>No wishlist saves yet.</Text>
-            )}
-          </View>
-
-          <View style={styles.bucketSection}>
-            <Text style={styles.bucketTitle}>Favourite</Text>
-            {selectedGroup?.favourite.length ? (
-              selectedGroup.favourite.map((entry: SavedEntry) => {
-                const entryKey = makeEntryKey(entry);
-                return (
-                  <SwipeStrikeItem
-                    key={entryKey}
-                    label={`• ${entry.pin.label}`}
-                    editing={isEditing}
-                    marked={Boolean(pendingRemovals[entryKey])}
-                    onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
-                    onPress={() => handleEntryPress(entry)}
-                  />
-                );
-              })
-            ) : (
-              <Text style={styles.emptyState}>No favourite saves yet.</Text>
-            )}
-          </View>
-
-          {isEditing && (
-            <View style={styles.editActions}>
-              <Pressable onPress={handleCancelEditing} style={styles.editCancelButton} hitSlop={12}>
-                <Text style={styles.editCancelText}>Cancel</Text>
-              </Pressable>
-              {hasPendingRemovals && (
+        {selectedGroup ? (
+          <View style={styles.detailSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
+              {!!totalItems && (
                 <Pressable
-                  onPress={handleConfirmRemovals}
-                  style={styles.editDoneButton}
-                  hitSlop={12}
-                  accessibilityRole="button"
-                  accessibilityLabel="Confirm deletions"
+                  style={[styles.editButton, isEditing && styles.editButtonActive]}
+                  hitSlop={10}
+                  onPress={toggleEditing}
                 >
-                  <Text style={styles.editDoneText}>Done</Text>
+                  <FontAwesome name="pencil" size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
                 </Pressable>
               )}
             </View>
-          )}
-        </View>
+            <MapView
+              key={selectedListId ?? 'none'}
+              style={styles.detailMap}
+              region={regionForMap}
+              initialRegion={regionForMap}
+            >
+              {pinsForMap.map((entry) => (
+                <Marker
+                  key={`${entry.listId}-${entry.bucket}-${entry.savedAt}`}
+                  coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                  title={entry.pin.label}
+                  pinColor={entry.bucket === 'wishlist' ? '#f59e0b' : '#22c55e'}
+                />
+              ))}
+            </MapView>
+
+            <View style={styles.bucketSection}>
+              <Text style={styles.bucketTitle}>Wishlist</Text>
+              {selectedGroup.wishlist.length ? (
+                selectedGroup.wishlist.map((entry: SavedEntry) => {
+                  const entryKey = makeEntryKey(entry);
+                  return (
+                    <SwipeStrikeItem
+                      key={entryKey}
+                      label={`• ${entry.pin.label}`}
+                      editing={isEditing}
+                      marked={Boolean(pendingRemovals[entryKey])}
+                      onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                      onPress={() => handleEntryPress(entry)}
+                    />
+                  );
+                })
+              ) : (
+                <Text style={styles.emptyState}>No wishlist saves yet.</Text>
+              )}
+            </View>
+
+            <View style={styles.bucketSection}>
+              <Text style={styles.bucketTitle}>Favourite</Text>
+              {selectedGroup.favourite.length ? (
+                selectedGroup.favourite.map((entry: SavedEntry) => {
+                  const entryKey = makeEntryKey(entry);
+                  return (
+                    <SwipeStrikeItem
+                      key={entryKey}
+                      label={`• ${entry.pin.label}`}
+                      editing={isEditing}
+                      marked={Boolean(pendingRemovals[entryKey])}
+                      onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                      onPress={() => handleEntryPress(entry)}
+                    />
+                  );
+                })
+              ) : (
+                <Text style={styles.emptyState}>No favourite saves yet.</Text>
+              )}
+            </View>
+
+            {isEditing && (
+              <View style={styles.editActions}>
+                <Pressable onPress={handleCancelEditing} style={styles.editCancelButton} hitSlop={12}>
+                  <Text style={styles.editCancelText}>Cancel</Text>
+                </Pressable>
+                {hasPendingRemovals && (
+                  <Pressable
+                    onPress={handleConfirmRemovals}
+                    style={styles.editDoneButton}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel="Confirm deletions"
+                  >
+                    <Text style={styles.editDoneText}>Done</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
       <Modal

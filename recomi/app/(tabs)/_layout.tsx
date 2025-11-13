@@ -36,6 +36,13 @@ export default function TabLayout() {
             }}
           />
           <Tabs.Screen
+            name="find-people"
+            options={{
+              title: 'Find People',
+              tabBarIcon: ({ color }) => <TabBarIcon name="users" color={color} />,
+            }}
+          />
+          <Tabs.Screen
             name="profile"
             options={{
               title: 'Profile',

@@ -7,6 +7,7 @@ import Constants from "expo-constants";
 import { GoogleAuthProvider, User, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
 
 import { auth } from "../firebase/app";
+import { upsertUserProfileFromAuth } from "../api/users";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -60,6 +61,11 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setInitializing(false);
+      if (firebaseUser) {
+        void upsertUserProfileFromAuth(firebaseUser).catch((err) => {
+          console.error("Failed to ensure user profile", err);
+        });
+      }
     });
     return unsubscribe;
   }, []);
@@ -73,7 +79,10 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
             throw new Error("Google authentication did not return an ID token.");
           }
           const credential = GoogleAuthProvider.credential(idToken);
-          await signInWithCredential(auth, credential);
+          const result = await signInWithCredential(auth, credential);
+          if (result.user) {
+            await upsertUserProfileFromAuth(result.user);
+          }
           setError(null);
         } catch (err) {
           console.error("Google sign-in failed", err);

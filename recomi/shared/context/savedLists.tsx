@@ -46,14 +46,7 @@ export const LIST_VISIBILITY_OPTIONS: Array<{
   },
 ]
 
-const INITIAL_LIST_DEFINITIONS: SavedListDefinition[] = [
-  { id: "1", name: "Weekend Brunch Spots", visibility: "public" },
-  { id: "2", name: "Coffee Crawl", visibility: "public" },
-  { id: "3", name: "Date Night Ideas", visibility: "public" },
-  { id: "4", name: "Bucket List Cities", visibility: "public" },
-  { id: "5", name: "Friend Recs", visibility: "public" },
-  { id: "6", name: "Hidden Gems", visibility: "public" },
-]
+const EMPTY_LIST_DEFINITIONS: SavedListDefinition[] = []
 
 type SavedListsContextValue = {
   lists: SavedListDefinition[]
@@ -72,7 +65,7 @@ const SavedListsContext = React.createContext<SavedListsContextValue | undefined
 
 export function SavedListsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
-  const [lists, setLists] = React.useState<SavedListDefinition[]>(INITIAL_LIST_DEFINITIONS)
+  const [lists, setLists] = React.useState<SavedListDefinition[]>(EMPTY_LIST_DEFINITIONS)
   const [entries, setEntries] = React.useState<SavedEntry[]>([])
   const [loading, setLoading] = React.useState(true)
   const isHydratedRef = React.useRef(false)
@@ -82,7 +75,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     isHydratedRef.current = false
 
     if (!user) {
-    setLists(INITIAL_LIST_DEFINITIONS)
+    setLists(EMPTY_LIST_DEFINITIONS)
     setEntries([])
     setTimeout(() => {
       isHydratedRef.current = true
@@ -102,7 +95,8 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
             entries?: SavedEntry[]
           }
 
-          const nextLists = (data.lists?.length ? data.lists : INITIAL_LIST_DEFINITIONS).map(
+          const rawLists = Array.isArray(data.lists) ? data.lists : []
+          const nextLists = rawLists.map(
             (list) => ({
               ...list,
               visibility: list.visibility ?? "public",
@@ -112,7 +106,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
           setLists(nextLists)
           setEntries(Array.isArray(data.entries) ? data.entries : [])
         } else {
-          setLists(INITIAL_LIST_DEFINITIONS)
+          setLists(EMPTY_LIST_DEFINITIONS)
           setEntries([])
         }
 
