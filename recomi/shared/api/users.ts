@@ -1,4 +1,4 @@
-import type { User } from "firebase/auth"
+import type { User } from "@firebase/auth-types"
 import {
   collection,
   doc,
@@ -12,11 +12,12 @@ import {
   serverTimestamp,
   startAfter,
   where,
+  type Firestore,
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from "firebase/firestore"
 
-import { firestore } from "../firebase/app"
+import { firestore } from "@/shared/firebase/app"
 
 export const USERS_COLLECTION = "users"
 export const USER_FOLLOWS_COLLECTION = "userFollows"
@@ -118,10 +119,14 @@ const toUserProfile = (snapshot: QueryDocumentSnapshot<UserDocument>): UserProfi
   }
 }
 
-export async function upsertUserProfileFromAuth(user: User, overrides: Partial<UserDocument> = {}) {
-  const ref = doc(firestore, USERS_COLLECTION, user.uid)
+export async function upsertUserProfileFromAuth(
+  user: User,
+  overrides: Partial<UserDocument> = {},
+  db: Firestore = firestore,
+): Promise<void> {
+  const ref = doc(db, USERS_COLLECTION, user.uid)
 
-  await runTransaction(firestore, async (tx) => {
+  await runTransaction(db, async (tx) => {
     const snapshot = await tx.get(ref)
     const exists = snapshot.exists()
     const data = (snapshot.data() ?? {}) as UserDocument
@@ -151,17 +156,20 @@ export async function upsertUserProfileFromAuth(user: User, overrides: Partial<U
   })
 }
 
-export async function getUserProfile(uid: string): Promise<UserProfile | null> {
-  const snapshot = await getDoc(doc<UserDocument>(firestore, USERS_COLLECTION, uid))
+export async function getUserProfile(uid: string, db: Firestore = firestore): Promise<UserProfile | null> {
+  const snapshot = await getDoc(doc(db, USERS_COLLECTION, uid))
   if (!snapshot.exists()) {
     return null
   }
   return toUserProfile(snapshot as QueryDocumentSnapshot<UserDocument>)
 }
 
-export async function listUserProfiles(options: ListUsersOptions = {}): Promise<ListUsersResult> {
+export async function listUserProfiles(
+  options: ListUsersOptions = {},
+  db: Firestore = firestore,
+): Promise<ListUsersResult> {
   const { search, limit = DEFAULT_LIMIT, excludeUid, cursor } = options
-  const usersRef = collection<UserDocument>(firestore, USERS_COLLECTION)
+  const usersRef = collection(db, USERS_COLLECTION)
 
   const constraints: QueryConstraint[] = []
 
@@ -199,16 +207,20 @@ export async function listUserProfiles(options: ListUsersOptions = {}): Promise<
 const followDocId = (followerId: string, followeeId: string) =>
   `${followerId}_${followeeId}`
 
-export async function followUser(followerId: string, followeeId: string) {
+export async function followUser(
+  followerId: string,
+  followeeId: string,
+  db: Firestore = firestore,
+): Promise<void> {
   if (followerId === followeeId) {
     throw new Error("You cannot follow yourself.")
   }
 
-  const followRef = doc(firestore, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
-  const followerRef = doc(firestore, USERS_COLLECTION, followerId)
-  const followeeRef = doc(firestore, USERS_COLLECTION, followeeId)
+  const followRef = doc(db, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
+  const followerRef = doc(db, USERS_COLLECTION, followerId)
+  const followeeRef = doc(db, USERS_COLLECTION, followeeId)
 
-  await runTransaction(firestore, async (tx) => {
+  await runTransaction(db, async (tx) => {
     const existing = await tx.get(followRef)
     if (existing.exists()) {
       return
@@ -231,16 +243,20 @@ export async function followUser(followerId: string, followeeId: string) {
   })
 }
 
-export async function unfollowUser(followerId: string, followeeId: string) {
+export async function unfollowUser(
+  followerId: string,
+  followeeId: string,
+  db: Firestore = firestore,
+): Promise<void> {
   if (followerId === followeeId) {
     return
   }
 
-  const followRef = doc(firestore, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
-  const followerRef = doc(firestore, USERS_COLLECTION, followerId)
-  const followeeRef = doc(firestore, USERS_COLLECTION, followeeId)
+  const followRef = doc(db, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
+  const followerRef = doc(db, USERS_COLLECTION, followerId)
+  const followeeRef = doc(db, USERS_COLLECTION, followeeId)
 
-  await runTransaction(firestore, async (tx) => {
+  await runTransaction(db, async (tx) => {
     const existing = await tx.get(followRef)
     if (!existing.exists()) {
       return
@@ -258,18 +274,22 @@ export async function unfollowUser(followerId: string, followeeId: string) {
   })
 }
 
-export async function isFollowing(followerId: string, followeeId: string) {
+export async function isFollowing(
+  followerId: string,
+  followeeId: string,
+  db: Firestore = firestore,
+): Promise<boolean> {
   if (!followerId || !followeeId) {
     return false
   }
   const snapshot = await getDoc(
-    doc(firestore, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
+    doc(db, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
   )
   return snapshot.exists()
 }
 
-export async function getFollowCounts(uid: string): Promise<FollowCounts> {
-  const profile = await getUserProfile(uid)
+export async function getFollowCounts(uid: string, db: Firestore = firestore): Promise<FollowCounts> {
+  const profile = await getUserProfile(uid, db)
   return {
     followers: profile?.followersCount ?? 0,
     following: profile?.followingCount ?? 0,
