@@ -17,9 +17,20 @@ import {
   type ListUsersResult,
   type UserProfile,
 } from "../../shared/api/users";
+import type { SavedEntry } from "../../shared/context/savedLists";
 import { useAuth } from "../../shared/context/auth";
 
 const SEARCH_DEBOUNCE_MS = 350;
+
+type EnrichedUserProfile = UserProfile & {
+  savedPlacesCount: number;
+};
+
+function countSavedPlaces(user: UserProfile): number {
+  const entriesField = (user as any).entries;
+  if (!Array.isArray(entriesField)) return 0;
+  return entriesField.length;
+}
 
 export default function FindPeopleScreen() {
   const insets = useSafeAreaInsets();
@@ -27,7 +38,7 @@ export default function FindPeopleScreen() {
   const router = useRouter();
 
   const [query, setQuery] = React.useState("");
-  const [results, setResults] = React.useState<UserProfile[]>([]);
+  const [results, setResults] = React.useState<EnrichedUserProfile[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [refreshing, setRefreshing] = React.useState(false);
@@ -67,7 +78,12 @@ export default function FindPeopleScreen() {
         hasMoreRef.current = nextHasMore;
         setHasMore(nextHasMore);
 
-        setResults((prev) => (mode === "append" ? [...prev, ...result.users] : result.users));
+        const enriched = result.users.map((user) => ({
+          ...user,
+          savedPlacesCount: countSavedPlaces(user),
+        }));
+
+        setResults((prev) => (mode === "append" ? [...prev, ...enriched] : enriched));
       } catch (err) {
         console.error("Failed to load users", err);
         setError(err instanceof Error ? err.message : "Unable to load people right now.");
@@ -102,7 +118,7 @@ export default function FindPeopleScreen() {
   }, [fetchUsers, loading, loadingMore]);
 
   const renderItem = React.useCallback(
-    ({ item }: { item: UserProfile }) => (
+    ({ item }: { item: EnrichedUserProfile }) => (
       <Pressable
         style={styles.card}
         onPress={() => router.push(`/user/${item.id}`)}
@@ -122,11 +138,9 @@ export default function FindPeopleScreen() {
           <Text style={styles.cardTitle}>{item.displayName ?? item.username ?? "Unknown user"}</Text>
           {item.username ? <Text style={styles.cardHandle}>@{item.username}</Text> : null}
           {item.bio ? <Text style={styles.cardBio} numberOfLines={2}>{item.bio}</Text> : null}
-          <View style={styles.statsRow}>
-            <Text style={styles.statText}>{item.followersCount} followers</Text>
-            <Text style={styles.dot}>•</Text>
-            <Text style={styles.statText}>{item.followingCount} following</Text>
-          </View>
+          <Text style={styles.cardMeta}>
+            {item.savedPlacesCount} {item.savedPlacesCount === 1 ? "place saved" : "places saved"}
+          </Text>
         </View>
       </Pressable>
     ),
@@ -271,18 +285,10 @@ const styles = StyleSheet.create({
     color: "#1e293b",
     marginTop: 8,
   },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 10,
-  },
-  statText: {
+  cardMeta: {
     fontSize: 13,
     color: "#475569",
-  },
-  dot: {
-    marginHorizontal: 8,
-    color: "#94a3b8",
+    marginTop: 6,
   },
   centerContent: {
     padding: 40,
