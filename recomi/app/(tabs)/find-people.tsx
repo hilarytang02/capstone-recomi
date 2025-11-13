@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -36,6 +37,7 @@ export default function FindPeopleScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const router = useRouter();
+  const searchInputRef = React.useRef<TextInput | null>(null);
 
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<EnrichedUserProfile[]>([]);
@@ -44,6 +46,7 @@ export default function FindPeopleScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [hasMore, setHasMore] = React.useState(true);
+  const [searchFocused, setSearchFocused] = React.useState(false);
 
   const cursorRef = React.useRef<ListUsersResult["cursor"]>(null);
   const fetchingRef = React.useRef(false);
@@ -117,6 +120,16 @@ export default function FindPeopleScreen() {
     }
   }, [fetchUsers, loading, loadingMore]);
 
+  const dismissKeyboard = React.useCallback(() => {
+    Keyboard.dismiss();
+    searchInputRef.current?.blur();
+  }, []);
+
+  const handleCancelSearch = React.useCallback(() => {
+    dismissKeyboard();
+    setSearchFocused(false);
+  }, [dismissKeyboard]);
+
   const renderItem = React.useCallback(
     ({ item }: { item: EnrichedUserProfile }) => (
       <Pressable
@@ -177,16 +190,28 @@ export default function FindPeopleScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top || 12 }]}>
       <View style={styles.searchWrapper}>
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by username"
-          placeholderTextColor="#94a3b8"
-          value={query}
-          onChangeText={setQuery}
-          autoCapitalize="none"
-          autoCorrect={false}
-          clearButtonMode="while-editing"
-        />
+        <View style={styles.searchInputContainer}>
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            placeholder="Search by username"
+            placeholderTextColor="#94a3b8"
+            value={query}
+            onChangeText={setQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            returnKeyType="done"
+            onSubmitEditing={dismissKeyboard}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+          />
+        </View>
+        {searchFocused || query.length ? (
+          <Pressable onPress={handleCancelSearch} style={styles.cancelButton}>
+            <Text style={styles.cancelLabel}>Cancel</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <FlatList
@@ -194,6 +219,8 @@ export default function FindPeopleScreen() {
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={dismissKeyboard}
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.4}
         refreshing={refreshing}
@@ -219,6 +246,12 @@ const styles = StyleSheet.create({
   searchWrapper: {
     paddingHorizontal: 20,
     paddingBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  searchInputContainer: {
+    flex: 1,
   },
   searchInput: {
     height: 44,
@@ -229,6 +262,15 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     fontSize: 16,
     color: "#0f172a",
+  },
+  cancelButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  cancelLabel: {
+    color: "#0f172a",
+    fontSize: 15,
+    fontWeight: "600",
   },
   listContent: {
     paddingHorizontal: 16,

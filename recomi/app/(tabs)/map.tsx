@@ -2,6 +2,7 @@ import React from "react";
 import {
   Dimensions,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -95,6 +96,8 @@ export default function MapScreen() {
   const [region, setRegion] = React.useState<Region>(WORLD);
   const [locPerm, setLocPerm] = React.useState<"granted" | "denied" | "undetermined">("undetermined");
   const [query, setQuery] = React.useState("");
+  const searchInputRef = React.useRef<TextInput | null>(null);
+  const [searchFocused, setSearchFocused] = React.useState(false);
   const [pin, setPin] = React.useState<PinData | null>(null);
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
@@ -280,6 +283,7 @@ const reopenListModalRef = React.useRef(false);
   };
 
   const handleMapPress = ({ latitude, longitude }: { latitude: number; longitude: number }) => {
+    dismissKeyboard();
     const basePin: PinData = { lat: latitude, lng: longitude, label: "Dropped pin" };
     setPin(basePin);
     setQuery("");
@@ -574,6 +578,17 @@ const reopenListModalRef = React.useRef(false);
   ]);
 
   const showSearchBar = sheetState !== "expanded";
+
+  const dismissKeyboard = React.useCallback(() => {
+    Keyboard.dismiss();
+    searchInputRef.current?.blur();
+  }, []);
+
+  const handleCancelSearch = React.useCallback(() => {
+    setQuery("");
+    setSearchFocused(false);
+    dismissKeyboard();
+  }, [dismissKeyboard]);
   const sheetHeight = SHEET_HEIGHTS[sheetState];
   const isSheetExpanded = sheetState === "expanded";
   const isSheetCollapsed = sheetState === "collapsed";
@@ -613,16 +628,31 @@ const reopenListModalRef = React.useRef(false);
       </MapView>
 
       {showSearchBar && (
-        <TextInput
-          placeholder="Search a place or address"
-          value={query}
-          onChangeText={setQuery}
-          onSubmitEditing={({ nativeEvent }) => handleSubmit(nativeEvent.text)}
-          style={[styles.searchBar, { top: insets.top + 16 }]}
-          blurOnSubmit
-          enablesReturnKeyAutomatically
-          returnKeyType="search"
-        />
+        <View style={[styles.searchBarWrapper, { top: insets.top + 16 }]}>
+          <View style={styles.searchBarField}>
+            <TextInput
+              ref={searchInputRef}
+              placeholder="Search a place or address"
+              value={query}
+              onChangeText={setQuery}
+              onSubmitEditing={({ nativeEvent }) => {
+                dismissKeyboard();
+                handleSubmit(nativeEvent.text);
+              }}
+              style={styles.searchInput}
+              returnKeyType="search"
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setSearchFocused(false)}
+              blurOnSubmit
+              enablesReturnKeyAutomatically
+            />
+          </View>
+          {(searchFocused || query.length > 0) && (
+            <Pressable onPress={handleCancelSearch} style={styles.searchCancelButton}>
+              <Text style={styles.searchCancelLabel}>Cancel</Text>
+            </Pressable>
+          )}
+        </View>
       )}
 
       <View style={styles.recenter}>
@@ -984,12 +1014,20 @@ function CompassButton({ heading, onPress }: { heading: number; onPress: () => v
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  searchBar: {
+  searchBarWrapper: {
     position: "absolute",
-    top: 16,
     left: 16,
     right: 16,
-    backgroundColor: "white",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    zIndex: 10,
+  },
+  searchBarField: {
+    flex: 1,
+  },
+  searchInput: {
+    backgroundColor: "#fff",
     height: 44,
     borderRadius: 12,
     paddingHorizontal: 12,
@@ -997,7 +1035,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 4,
-    zIndex: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  searchCancelButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  searchCancelLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0f172a",
   },
   recenter: {
     position: "absolute",
