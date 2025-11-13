@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import {
   listUserProfiles,
@@ -23,6 +24,7 @@ const SEARCH_DEBOUNCE_MS = 350;
 export default function FindPeopleScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const router = useRouter();
 
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<UserProfile[]>([]);
@@ -101,7 +103,10 @@ export default function FindPeopleScreen() {
 
   const renderItem = React.useCallback(
     ({ item }: { item: UserProfile }) => (
-      <Pressable style={styles.card}>
+      <Pressable
+        style={styles.card}
+        onPress={() => router.push(`/user/${item.id}`)}
+      >
         <View style={styles.avatarWrapper}>
           {item.photoURL ? (
             <Image source={{ uri: item.photoURL }} style={styles.avatar} />
@@ -125,7 +130,7 @@ export default function FindPeopleScreen() {
         </View>
       </Pressable>
     ),
-    []
+    [router]
   );
 
   const listEmpty = React.useMemo(() => {
