@@ -2,6 +2,7 @@ import React from "react";
 import {
   ActivityIndicator,
   Image,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, onSnapshot } from "firebase/firestore";
 
 import { firestore } from "@/shared/firebase/app";
-import { USERS_COLLECTION, type UserDocument } from "@/shared/api/users";
+import { USERS_COLLECTION, followUser, getFollowCounts, isFollowing, type UserDocument, unfollowUser } from "@/shared/api/users";
 import type { SavedEntry, SavedListDefinition } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
 
@@ -29,6 +30,14 @@ export default function UserProfileScreen() {
   const [profile, setProfile] = React.useState<UserProfileData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [isFollowingUser, setIsFollowingUser] = React.useState<boolean | null>(null);
+  const [followStatusLoading, setFollowStatusLoading] = React.useState(false);
+  const [followBusy, setFollowBusy] = React.useState(false);
+  const [followError, setFollowError] = React.useState<string | null>(null);
+  const [followersCount, setFollowersCount] = React.useState<number>(0);
+  const [followingCount, setFollowingCount] = React.useState<number>(0);
+  const [countsLoading, setCountsLoading] = React.useState(true);
+  const [countsRefreshKey, setCountsRefreshKey] = React.useState(0);
 
   React.useEffect(() => {
     if (!resolvedUid) {
@@ -61,6 +70,7 @@ export default function UserProfileScreen() {
   }, [resolvedUid]);
 
   const isSelf = user?.uid === resolvedUid;
+  const canFollow = Boolean(user && resolvedUid && !isSelf);
 
   const lists = React.useMemo(() => {
     if (!profile?.lists || !Array.isArray(profile.lists)) return [] as SavedListDefinition[];
@@ -83,6 +93,101 @@ export default function UserProfileScreen() {
     if (isSelf) return lists;
     return lists.filter((list) => list.visibility === "public");
   }, [isSelf, lists]);
+
+  React.useEffect(() => {
+    let active = true;
+    const loadCounts = async () => {
+      if (!resolvedUid) {
+        if (active) {
+          setFollowersCount(0);
+          setFollowingCount(0);
+          setCountsLoading(false);
+        }
+        return;
+      }
+      setCountsLoading(true);
+      try {
+        const counts = await getFollowCounts(resolvedUid);
+        if (active) {
+          setFollowersCount(counts.followers);
+          setFollowingCount(counts.following);
+        }
+      } catch (err) {
+        if (active) {
+          console.error("Failed to load follow counts", err);
+        }
+      } finally {
+        if (active) {
+          setCountsLoading(false);
+        }
+      }
+    };
+    void loadCounts();
+    return () => {
+      active = false;
+    };
+  }, [resolvedUid, countsRefreshKey]);
+
+  React.useEffect(() => {
+    if (!canFollow || !user || !resolvedUid) {
+      setIsFollowingUser(null);
+      setFollowStatusLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setFollowStatusLoading(true);
+    setFollowError(null);
+    isFollowing(user.uid, resolvedUid)
+      .then((result) => {
+        if (!cancelled) {
+          setIsFollowingUser(result);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to check follow state", err);
+          setFollowError("Unable to determine follow status.");
+          setIsFollowingUser(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFollowStatusLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canFollow, resolvedUid, user]);
+
+  const handleFollowToggle = React.useCallback(async () => {
+    if (!canFollow || !resolvedUid || !user) {
+      setFollowError("Sign in to follow people.");
+      return;
+    }
+    if (followBusy || followStatusLoading) return;
+
+    const currentlyFollowing = Boolean(isFollowingUser);
+    setFollowBusy(true);
+    setFollowError(null);
+    try {
+      if (currentlyFollowing) {
+        await unfollowUser(user.uid, resolvedUid);
+        setIsFollowingUser(false);
+      } else {
+        await followUser(user.uid, resolvedUid);
+        setIsFollowingUser(true);
+      }
+      setCountsRefreshKey((key) => key + 1);
+    } catch (err) {
+      console.error("Failed to update follow status", err);
+      setFollowError(err instanceof Error ? err.message : "Unable to update follow status.");
+    } finally {
+      setFollowBusy(false);
+    }
+  }, [canFollow, followBusy, followStatusLoading, isFollowingUser, resolvedUid, user]);
 
   if (loading) {
     return (
@@ -128,10 +233,32 @@ export default function UserProfileScreen() {
       </View>
 
       <View style={styles.statsRow}>
-        <Stat label="Followers" value={profile.followersCount ?? 0} />
-        <Stat label="Following" value={profile.followingCount ?? 0} />
+        <Stat label="Followers" value={followersCount} />
+        <Stat label="Following" value={followingCount} />
         <Stat label="Lists" value={visibleLists.length} />
       </View>
+      {countsLoading ? <Text style={styles.countsHint}>Updating stats…</Text> : null}
+
+      {canFollow ? (
+        <View>
+          <Pressable
+            style={[
+              styles.followButton,
+              isFollowingUser ? styles.followButtonSecondary : styles.followButtonPrimary,
+              (followBusy || followStatusLoading) && styles.followButtonDisabled,
+            ]}
+            disabled={followBusy || followStatusLoading}
+            onPress={handleFollowToggle}
+          >
+            <Text
+              style={isFollowingUser ? styles.followLabelSecondary : styles.followLabelPrimary}
+            >
+              {followStatusLoading ? "..." : isFollowingUser ? "Following" : "Follow"}
+            </Text>
+          </Pressable>
+          {followError ? <Text style={styles.followError}>{followError}</Text> : null}
+        </View>
+      ) : null}
 
       {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
@@ -271,6 +398,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#64748b",
   },
+  countsHint: {
+    marginTop: -12,
+    marginBottom: 8,
+    textAlign: "right",
+    fontSize: 12,
+    color: "#94a3b8",
+  },
   bio: {
     fontSize: 16,
     lineHeight: 22,
@@ -332,5 +466,38 @@ const styles = StyleSheet.create({
   listMeta: {
     fontSize: 13,
     color: "#94a3b8",
+  },
+  followButton: {
+    borderRadius: 999,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+  },
+  followButtonPrimary: {
+    backgroundColor: "#0f172a",
+  },
+  followButtonSecondary: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#cbd5f5",
+  },
+  followButtonDisabled: {
+    opacity: 0.6,
+  },
+  followLabelPrimary: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  followLabelSecondary: {
+    color: "#0f172a",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  followError: {
+    marginTop: 6,
+    color: "#b91c1c",
+    textAlign: "center",
   },
 });

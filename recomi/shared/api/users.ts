@@ -2,9 +2,9 @@ import type { User } from "@firebase/auth-types"
 import {
   collection,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
-  increment,
   limit as limitQuery,
   orderBy,
   query,
@@ -217,8 +217,6 @@ export async function followUser(
   }
 
   const followRef = doc(db, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
-  const followerRef = doc(db, USERS_COLLECTION, followerId)
-  const followeeRef = doc(db, USERS_COLLECTION, followeeId)
 
   await runTransaction(db, async (tx) => {
     const existing = await tx.get(followRef)
@@ -230,15 +228,6 @@ export async function followUser(
       followerId,
       followeeId,
       createdAt: serverTimestamp(),
-    })
-
-    tx.update(followerRef, {
-      followingCount: increment(1),
-      updatedAt: serverTimestamp(),
-    })
-    tx.update(followeeRef, {
-      followersCount: increment(1),
-      updatedAt: serverTimestamp(),
     })
   })
 }
@@ -253,8 +242,6 @@ export async function unfollowUser(
   }
 
   const followRef = doc(db, USER_FOLLOWS_COLLECTION, followDocId(followerId, followeeId))
-  const followerRef = doc(db, USERS_COLLECTION, followerId)
-  const followeeRef = doc(db, USERS_COLLECTION, followeeId)
 
   await runTransaction(db, async (tx) => {
     const existing = await tx.get(followRef)
@@ -263,14 +250,6 @@ export async function unfollowUser(
     }
 
     tx.delete(followRef)
-    tx.update(followerRef, {
-      followingCount: increment(-1),
-      updatedAt: serverTimestamp(),
-    })
-    tx.update(followeeRef, {
-      followersCount: increment(-1),
-      updatedAt: serverTimestamp(),
-    })
   })
 }
 
@@ -289,9 +268,14 @@ export async function isFollowing(
 }
 
 export async function getFollowCounts(uid: string, db: Firestore = firestore): Promise<FollowCounts> {
-  const profile = await getUserProfile(uid, db)
+  const followsRef = collection(db, USER_FOLLOWS_COLLECTION)
+  const [followersSnap, followingSnap] = await Promise.all([
+    getCountFromServer(query(followsRef, where("followeeId", "==", uid))),
+    getCountFromServer(query(followsRef, where("followerId", "==", uid))),
+  ])
+
   return {
-    followers: profile?.followersCount ?? 0,
-    following: profile?.followingCount ?? 0,
+    followers: followersSnap.data().count,
+    following: followingSnap.data().count,
   }
 }

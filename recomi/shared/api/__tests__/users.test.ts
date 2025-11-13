@@ -26,13 +26,17 @@ function createFirestoreMock() {
     collection: jest.fn(),
     getDoc: jest.fn(),
     getDocs: jest.fn(),
+    getCountFromServer: jest.fn(() =>
+      Promise.resolve({
+        data: () => ({ count: 0 }),
+      })
+    ),
     query: jest.fn((...args) => args),
     where: jest.fn(),
     orderBy: jest.fn(),
     limit: jest.fn(),
     startAfter: jest.fn(),
     runTransaction: jest.fn((_db, updater) => updater(transaction)),
-    increment: jest.fn((value: number) => ({ __op: "increment", value })),
     serverTimestamp: jest.fn(() => "timestamp"),
     setDoc: jest.fn(),
     __transaction: transaction,
@@ -49,13 +53,13 @@ const mockDoc = firestoreMock.doc;
 const mockCollection = firestoreMock.collection;
 const mockGetDoc = firestoreMock.getDoc;
 const mockGetDocs = firestoreMock.getDocs;
+const mockGetCountFromServer = firestoreMock.getCountFromServer;
 const mockQuery = firestoreMock.query;
 const mockWhere = firestoreMock.where;
 const mockOrderBy = firestoreMock.orderBy;
 const mockLimit = firestoreMock.limit;
 const mockStartAfter = firestoreMock.startAfter;
 const mockRunTransaction = firestoreMock.runTransaction;
-const mockIncrement = firestoreMock.increment;
 const mockServerTimestamp = firestoreMock.serverTimestamp;
 
 import type { Firestore } from "firebase/firestore";
@@ -131,7 +135,7 @@ describe("user profile helpers (mocked Firestore)", () => {
     );
   });
 
-  it("follows and unfollows another user with proper counter updates", async () => {
+  it("follows and unfollows another user by creating/deleting relationship docs", async () => {
     const followerId = "alpha";
     const followeeId = "bravo";
 
@@ -146,17 +150,6 @@ describe("user profile helpers (mocked Firestore)", () => {
         followeeId: "bravo",
       })
     );
-    expect(mockTransaction.update).toHaveBeenNthCalledWith(
-      1,
-      "users/alpha",
-      expect.objectContaining({ followingCount: expect.anything(), updatedAt: "timestamp" })
-    );
-    expect(mockTransaction.update).toHaveBeenNthCalledWith(
-      2,
-      "users/bravo",
-      expect.objectContaining({ followersCount: expect.anything(), updatedAt: "timestamp" })
-    );
-
     mockTransaction.get.mockResolvedValueOnce(buildMockSnapshot({}, true));
     await unfollowUser(followerId, followeeId, fakeDb);
 
@@ -172,9 +165,12 @@ describe("user profile helpers (mocked Firestore)", () => {
   });
 
   it("returns follow counts via getFollowCounts", async () => {
-    mockGetDoc.mockResolvedValueOnce(
-      buildMockSnapshot({ followersCount: 7, followingCount: 4 }, true)
-    );
+    mockGetCountFromServer.mockResolvedValueOnce({
+      data: () => ({ count: 7 }),
+    });
+    mockGetCountFromServer.mockResolvedValueOnce({
+      data: () => ({ count: 4 }),
+    });
 
     await expect(getFollowCounts("userX", fakeDb)).resolves.toEqual({
       followers: 7,
