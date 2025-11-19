@@ -20,6 +20,7 @@ import MapView, { Marker, type Region } from "@/components/MapView";
 import type { SavedEntry, SavedListDefinition } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import PinDetailSheet from "@/components/PinDetailSheet";
 
 type UserProfileData = UserDocument & {
   id: string;
@@ -82,6 +83,9 @@ export default function UserProfileScreen() {
   const [countsLoading, setCountsLoading] = React.useState(true);
   const [countsRefreshKey, setCountsRefreshKey] = React.useState(0);
   const [mapModalVisible, setMapModalVisible] = React.useState(false);
+  const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
+  const previewMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
+  const modalMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
 
   React.useEffect(() => {
     if (!resolvedUid) {
@@ -174,6 +178,38 @@ export default function UserProfileScreen() {
 
   const regionForMap = React.useMemo(() => computeRegion(pinsForMap), [pinsForMap]);
   const totalItems = pinsForMap.length;
+  const focusRegionOnMaps = React.useCallback(
+    (region: Region, duration = 220) => {
+      previewMapRef.current?.animateToRegion(region, duration);
+      modalMapRef.current?.animateToRegion(region, duration);
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    focusRegionOnMaps(regionForMap, 0);
+  }, [regionForMap, focusRegionOnMaps]);
+
+  const focusEntryRegion = React.useCallback(
+    (entry: SavedEntry) => {
+      const nextLatDelta =
+        regionForMap.latitudeDelta <= 0.08
+          ? Math.max(regionForMap.latitudeDelta * 0.65, 0.01)
+          : regionForMap.latitudeDelta;
+      const nextLngDelta =
+        regionForMap.longitudeDelta <= 0.08
+          ? Math.max(regionForMap.longitudeDelta * 0.65, 0.01)
+          : regionForMap.longitudeDelta;
+      const region: Region = {
+        latitude: entry.pin.lat,
+        longitude: entry.pin.lng,
+        latitudeDelta: nextLatDelta,
+        longitudeDelta: nextLngDelta,
+      };
+      focusRegionOnMaps(region);
+    },
+    [focusRegionOnMaps, regionForMap],
+  );
   const openExpandedMap = React.useCallback(() => {
     if (!selectedGroup) return;
     setMapModalVisible(true);
@@ -183,11 +219,40 @@ export default function UserProfileScreen() {
     setMapModalVisible(false);
   }, []);
 
+  const handleEntryFocus = React.useCallback(
+    (entry: SavedEntry) => {
+      focusEntryRegion(entry);
+    },
+    [focusEntryRegion],
+  );
+
+  const handleMarkerPress = React.useCallback(
+    (entry: SavedEntry) => {
+      setActivePinEntry(entry);
+      focusEntryRegion(entry);
+    },
+    [focusEntryRegion],
+  );
+
+  const closeActivePinSheet = React.useCallback(() => {
+    setActivePinEntry(null);
+  }, []);
+
   React.useEffect(() => {
     if (mapModalVisible && !selectedGroup) {
       setMapModalVisible(false);
     }
   }, [mapModalVisible, selectedGroup]);
+
+  React.useEffect(() => {
+    if (!selectedGroup) {
+      setActivePinEntry(null);
+      return;
+    }
+    setActivePinEntry((entry) =>
+      entry && entry.listId === selectedGroup.definition.id ? entry : null,
+    );
+  }, [selectedGroup]);
 
   React.useEffect(() => {
     let active = true;
@@ -301,10 +366,13 @@ export default function UserProfileScreen() {
   }
 
   return (
-    <>
+    <View style={styles.screen}>
       <ScrollView
-        style={[styles.container, { paddingTop: Math.max(insets.top, 16) }]}
-        contentContainerStyle={styles.contentContainer}
+        style={styles.container}
+        contentContainerStyle={[
+          styles.contentContainer,
+          { paddingTop: Math.max(insets.top, 16) },
+        ]}
       >
         <View style={styles.header}>
         {profile.photoURL ? (
@@ -408,20 +476,21 @@ export default function UserProfileScreen() {
               </View>
               <View style={styles.mapPreviewWrapper}>
                 <MapView
+                  ref={previewMapRef}
                   key={selectedGroup.definition.id}
                   style={styles.detailMap}
-                  region={regionForMap}
                   initialRegion={regionForMap}
                 >
-                  {pinsForMap.map((entry) => (
-                    <Marker
-                      key={makeEntryKey(entry)}
-                      coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
-                      title={entry.pin.label}
-                      pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
-                    />
-                  ))}
-                </MapView>
+                {pinsForMap.map((entry) => (
+                  <Marker
+                    key={makeEntryKey(entry)}
+                    coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                    title={entry.pin.label}
+                    pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                    onPress={() => handleMarkerPress(entry)}
+                  />
+                ))}
+              </MapView>
                 <Pressable
                   style={styles.mapExpandOverlay}
                   onPress={openExpandedMap}
@@ -439,9 +508,15 @@ export default function UserProfileScreen() {
                 <Text style={styles.bucketTitle}>Wishlist</Text>
                 {selectedGroup.wishlist.length ? (
                   selectedGroup.wishlist.map((entry) => (
-                    <Text key={`wish-${makeEntryKey(entry)}`} style={styles.bucketItem}>
-                      • {entry.pin.label}
-                    </Text>
+                    <Pressable
+                      key={`wish-${makeEntryKey(entry)}`}
+                      onPress={() => handleEntryFocus(entry)}
+                      style={styles.bucketItemButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Focus map on ${entry.pin.label}`}
+                    >
+                      <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                    </Pressable>
                   ))
                 ) : (
                   <Text style={styles.emptyState}>No wishlist saves yet.</Text>
@@ -452,9 +527,15 @@ export default function UserProfileScreen() {
                 <Text style={styles.bucketTitle}>Favourite</Text>
                 {selectedGroup.favourite.length ? (
                   selectedGroup.favourite.map((entry) => (
-                    <Text key={`fav-${makeEntryKey(entry)}`} style={styles.bucketItem}>
-                      • {entry.pin.label}
-                    </Text>
+                    <Pressable
+                      key={`fav-${makeEntryKey(entry)}`}
+                      onPress={() => handleEntryFocus(entry)}
+                      style={styles.bucketItemButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Focus map on ${entry.pin.label}`}
+                    >
+                      <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                    </Pressable>
                   ))
                 ) : (
                   <Text style={styles.emptyState}>No favourite saves yet.</Text>
@@ -465,6 +546,8 @@ export default function UserProfileScreen() {
         </>
       )}
       </ScrollView>
+
+      <PinDetailSheet entry={activePinEntry} onClose={closeActivePinSheet} bottomInset={insets.bottom} />
 
       <Modal
         transparent
@@ -491,6 +574,7 @@ export default function UserProfileScreen() {
             <View style={styles.mapModalBody}>
               {selectedGroup ? (
                 <MapView
+                  ref={modalMapRef}
                   key={`${selectedGroup.definition.id}-expanded`}
                   style={styles.mapModalMap}
                   initialRegion={regionForMap}
@@ -501,6 +585,7 @@ export default function UserProfileScreen() {
                       coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                       title={entry.pin.label}
                       pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                      onPress={() => handleMarkerPress(entry)}
                     />
                   ))}
                 </MapView>
@@ -513,7 +598,7 @@ export default function UserProfileScreen() {
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 }
 
@@ -527,6 +612,10 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+  },
   container: {
     flex: 1,
     backgroundColor: "#f8fafc",
@@ -740,6 +829,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#0f172a",
+  },
+  bucketItemButton: {
+    paddingVertical: 4,
   },
   bucketItem: {
     fontSize: 15,

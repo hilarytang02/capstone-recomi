@@ -19,7 +19,6 @@ import {
 import MapView, { Marker, type Region } from "../../components/MapView";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
-import { useRouter } from "expo-router";
 import {
   useSavedLists,
   type SavedEntry,
@@ -28,6 +27,7 @@ import {
 } from "../../shared/context/savedLists";
 import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
+import PinDetailSheet from "../../components/PinDetailSheet";
 
 type GroupedList = {
   definition: SavedListDefinition;
@@ -71,7 +71,6 @@ const computeRegion = (pins: SavedEntry[]): Region => {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const { user, signOut } = useAuth();
   const {
     entries,
@@ -79,13 +78,14 @@ export default function ProfileScreen() {
     removeList,
     addList,
     removeEntry,
-    requestMapFocus,
     loading: listsLoading,
   } = useSavedLists();
   const [deleteMode, setDeleteMode] = React.useState(false);
   const wiggleAnim = React.useRef(new Animated.Value(0)).current;
   const wiggleLoop = React.useRef<Animated.CompositeAnimation | null>(null);
   const galleryRef = React.useRef<FlatList<GroupedList> | null>(null);
+  const previewMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
+  const modalMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const [newListModalVisible, setNewListModalVisible] = React.useState(false);
   const [newListName, setNewListName] = React.useState("");
   const [newListError, setNewListError] = React.useState<string | null>(null);
@@ -94,6 +94,7 @@ export default function ProfileScreen() {
   const [pendingRemovals, setPendingRemovals] = React.useState<Record<string, SavedEntry>>({});
   const [signingOut, setSigningOut] = React.useState(false);
   const [mapModalVisible, setMapModalVisible] = React.useState(false);
+  const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
 
   const grouped = React.useMemo<GroupedList[]>(() => {
     return lists.map((definition) => {
@@ -267,10 +268,9 @@ export default function ProfileScreen() {
       setPendingRemovals({});
       setIsEditing(false);
       setDeleteMode(false);
-      requestMapFocus(entry);
-      router.push("/map");
+      focusEntryRegion(entry);
     },
-    [deleteMode, isEditing, requestMapFocus, router],
+    [deleteMode, focusEntryRegion, isEditing],
   );
 
   const handleSignOut = React.useCallback(async () => {
@@ -304,6 +304,38 @@ export default function ProfileScreen() {
     [pendingRemovals],
   );
   const totalItems = pinsForMap.length;
+  const focusRegionOnMaps = React.useCallback(
+    (region: Region, duration = 220) => {
+      previewMapRef.current?.animateToRegion(region, duration);
+      modalMapRef.current?.animateToRegion(region, duration);
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    focusRegionOnMaps(regionForMap, 0);
+  }, [regionForMap, focusRegionOnMaps]);
+
+  const focusEntryRegion = React.useCallback(
+    (entry: SavedEntry) => {
+      const nextLatDelta =
+        regionForMap.latitudeDelta <= 0.08
+          ? Math.max(regionForMap.latitudeDelta * 0.65, 0.01)
+          : regionForMap.latitudeDelta;
+      const nextLngDelta =
+        regionForMap.longitudeDelta <= 0.08
+          ? Math.max(regionForMap.longitudeDelta * 0.65, 0.01)
+          : regionForMap.longitudeDelta;
+      const region: Region = {
+        latitude: entry.pin.lat,
+        longitude: entry.pin.lng,
+        latitudeDelta: nextLatDelta,
+        longitudeDelta: nextLngDelta,
+      };
+      focusRegionOnMaps(region);
+    },
+    [focusRegionOnMaps, regionForMap],
+  );
 
   const openExpandedMap = React.useCallback(() => {
     if (!selectedGroup) return;
@@ -369,9 +401,32 @@ export default function ProfileScreen() {
     setIsEditing(false);
   }, [pendingRemovals, removeEntry]);
 
+  const handleMarkerPress = React.useCallback(
+    (entry: SavedEntry) => {
+      setActivePinEntry(entry);
+      focusEntryRegion(entry);
+    },
+    [focusEntryRegion],
+  );
+
+  const closeActivePinSheet = React.useCallback(() => {
+    setActivePinEntry(null);
+  }, []);
+
+  React.useEffect(() => {
+    if (!selectedGroup) {
+      setActivePinEntry(null);
+      return;
+    }
+    setActivePinEntry((current) =>
+      current && current.listId === selectedGroup.definition.id ? current : null,
+    );
+  }, [selectedGroup]);
+
   return (
-    <>
+    <View style={styles.screen}>
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={[
           styles.container,
           { paddingTop: insets.top + 24 },
@@ -538,9 +593,9 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.mapPreviewWrapper}>
               <MapView
+                ref={previewMapRef}
                 key={selectedListId ?? 'none'}
                 style={styles.detailMap}
-                region={regionForMap}
                 initialRegion={regionForMap}
               >
                 {pinsForMap.map((entry) => (
@@ -549,6 +604,7 @@ export default function ProfileScreen() {
                     coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                     title={entry.pin.label}
                     pinColor={entry.bucket === 'wishlist' ? '#f59e0b' : '#22c55e'}
+                    onPress={() => handleMarkerPress(entry)}
                   />
                 ))}
               </MapView>
@@ -631,6 +687,8 @@ export default function ProfileScreen() {
         ) : null}
       </ScrollView>
 
+      <PinDetailSheet entry={activePinEntry} onClose={closeActivePinSheet} bottomInset={insets.bottom} />
+
       <Modal
         transparent
         visible={mapModalVisible}
@@ -656,18 +714,20 @@ export default function ProfileScreen() {
             <View style={styles.mapModalBody}>
               {selectedGroup ? (
                 <MapView
+                  ref={modalMapRef}
                   key={selectedGroup.definition.id}
                   style={styles.mapModalMap}
                   initialRegion={regionForMap}
                 >
-                  {pinsForMap.map((entry) => (
-                    <Marker
-                      key={`${entry.listId}-${entry.bucket}-${entry.savedAt}`}
-                      coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
-                      title={entry.pin.label}
-                      pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
-                    />
-                  ))}
+                {pinsForMap.map((entry) => (
+                  <Marker
+                    key={`${entry.listId}-${entry.bucket}-${entry.savedAt}`}
+                    coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                    title={entry.pin.label}
+                    pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                    onPress={() => handleMarkerPress(entry)}
+                  />
+                ))}
                 </MapView>
               ) : (
                 <View style={styles.mapModalEmpty}>
@@ -748,7 +808,7 @@ export default function ProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </>
+    </View>
   );
 }
 
@@ -883,6 +943,10 @@ function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: Sw
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
   loader: {
     flex: 1,
     backgroundColor: '#f8fafc',
