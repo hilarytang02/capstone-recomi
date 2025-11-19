@@ -1,6 +1,7 @@
 import React from "react";
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Pressable,
   ScrollView,
@@ -14,11 +15,51 @@ import { doc, onSnapshot } from "firebase/firestore";
 
 import { firestore } from "@/shared/firebase/app";
 import { USERS_COLLECTION, followUser, getFollowCounts, isFollowing, type UserDocument, unfollowUser } from "@/shared/api/users";
+import MapView, { Marker, type Region } from "@/components/MapView";
 import type { SavedEntry, SavedListDefinition } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
 
 type UserProfileData = UserDocument & {
   id: string;
+};
+
+type GroupedList = {
+  definition: SavedListDefinition;
+  wishlist: SavedEntry[];
+  favourite: SavedEntry[];
+};
+
+const makeEntryKey = (entry: SavedEntry) =>
+  `${entry.listId}-${entry.bucket}-${entry.savedAt}`;
+
+const DEFAULT_REGION: Region = {
+  latitude: 37.773972,
+  longitude: -122.431297,
+  latitudeDelta: 0.5,
+  longitudeDelta: 0.5,
+};
+
+const computeRegion = (pins: SavedEntry[]): Region => {
+  if (!pins.length) {
+    return DEFAULT_REGION;
+  }
+
+  const latitudes = pins.map((entry) => entry.pin.lat);
+  const longitudes = pins.map((entry) => entry.pin.lng);
+  const minLat = Math.min(...latitudes);
+  const maxLat = Math.max(...latitudes);
+  const minLng = Math.min(...longitudes);
+  const maxLng = Math.max(...longitudes);
+
+  const latitudeDelta = Math.max((maxLat - minLat) * 1.4, 0.02);
+  const longitudeDelta = Math.max((maxLng - minLng) * 1.4, 0.02);
+
+  return {
+    latitude: (minLat + maxLat) / 2,
+    longitude: (minLng + maxLng) / 2,
+    latitudeDelta,
+    longitudeDelta,
+  };
 };
 
 export default function UserProfileScreen() {
@@ -93,6 +134,42 @@ export default function UserProfileScreen() {
     if (isSelf) return lists;
     return lists.filter((list) => list.visibility === "public");
   }, [isSelf, lists]);
+
+  const groupedLists = React.useMemo<GroupedList[]>(() => {
+    return visibleLists.map((definition) => {
+      const related = entriesByList[definition.id] ?? [];
+      return {
+        definition,
+        wishlist: related.filter((entry) => entry.bucket === "wishlist"),
+        favourite: related.filter((entry) => entry.bucket === "favourite"),
+      };
+    });
+  }, [entriesByList, visibleLists]);
+
+  const [selectedListId, setSelectedListId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!visibleLists.length) {
+      setSelectedListId(null);
+      return;
+    }
+    if (!selectedListId || !visibleLists.some((list) => list.id === selectedListId)) {
+      setSelectedListId(visibleLists[0].id);
+    }
+  }, [selectedListId, visibleLists]);
+
+  const selectedGroup = React.useMemo(
+    () => groupedLists.find((group) => group.definition.id === selectedListId),
+    [groupedLists, selectedListId]
+  );
+
+  const pinsForMap = React.useMemo<SavedEntry[]>(() => {
+    if (!selectedGroup) return [];
+    return [...selectedGroup.wishlist, ...selectedGroup.favourite];
+  }, [selectedGroup]);
+
+  const regionForMap = React.useMemo(() => computeRegion(pinsForMap), [pinsForMap]);
+  const totalItems = pinsForMap.length;
 
   React.useEffect(() => {
     let active = true;
@@ -267,29 +344,108 @@ export default function UserProfileScreen() {
         {!isSelf ? <Text style={styles.sectionSubtitle}>Only public lists are visible.</Text> : null}
       </View>
 
-      {visibleLists.length === 0 ? (
+      {groupedLists.length === 0 ? (
         <Text style={styles.emptyState}>
           {isSelf ? "You haven't created any lists yet." : "No public lists to show."}
         </Text>
       ) : (
-        visibleLists.map((list) => {
-          const itemCount = entriesByList[list.id]?.length ?? 0;
-          const badgeStyle = badgeColors[list.visibility ?? "public"];
-          return (
-            <View key={list.id} style={styles.listCard}>
-              <View style={styles.listHeader}>
-                <Text style={styles.listName}>{list.name}</Text>
-                <Text style={[styles.badge, badgeStyle]}>
-                  {list.visibility ?? "public"}
+        <>
+          <FlatList
+            data={groupedLists}
+            horizontal
+            keyExtractor={(item) => item.definition.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.gallery}
+            renderItem={({ item }) => {
+              const total = item.wishlist.length + item.favourite.length;
+              const isSelected = item.definition.id === selectedListId;
+              const visibility = item.definition.visibility ?? "public";
+              const visibilityLabel = visibility.charAt(0).toUpperCase() + visibility.slice(1);
+              return (
+                <Pressable
+                  style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
+                  onPress={() => setSelectedListId(item.definition.id)}
+                >
+                  <Text style={styles.galleryTitle} numberOfLines={2}>
+                    {item.definition.name}
+                  </Text>
+                  <View style={styles.galleryMeta}>
+                    <Text style={styles.galleryCount}>
+                      {total} {total === 1 ? "place" : "places"}
+                    </Text>
+                    <View
+                      style={[
+                        styles.visibilityTag,
+                        visibility === "public"
+                          ? styles.visibilityTagPublic
+                          : visibility === "followers"
+                          ? styles.visibilityTagFollowers
+                          : styles.visibilityTagPrivate,
+                      ]}
+                    >
+                      <Text style={styles.visibilityTagLabel}>{visibilityLabel}</Text>
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
+
+          {selectedGroup ? (
+            <View style={styles.detailSection}>
+              <View style={styles.detailHeader}>
+                <Text style={styles.detailTitle}>{selectedGroup.definition.name}</Text>
+                {selectedGroup.definition.description ? (
+                  <Text style={styles.listDescription}>{selectedGroup.definition.description}</Text>
+                ) : null}
+                <Text style={styles.listMeta}>
+                  {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
                 </Text>
               </View>
-              {list.description ? <Text style={styles.listDescription}>{list.description}</Text> : null}
-              <Text style={styles.listMeta}>
-                {itemCount} {itemCount === 1 ? "place" : "places"}
-              </Text>
+              <MapView
+                key={selectedGroup.definition.id}
+                style={styles.detailMap}
+                region={regionForMap}
+                initialRegion={regionForMap}
+              >
+                {pinsForMap.map((entry) => (
+                  <Marker
+                    key={makeEntryKey(entry)}
+                    coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                    title={entry.pin.label}
+                    pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                  />
+                ))}
+              </MapView>
+
+              <View style={styles.bucketSection}>
+                <Text style={styles.bucketTitle}>Wishlist</Text>
+                {selectedGroup.wishlist.length ? (
+                  selectedGroup.wishlist.map((entry) => (
+                    <Text key={`wish-${makeEntryKey(entry)}`} style={styles.bucketItem}>
+                      • {entry.pin.label}
+                    </Text>
+                  ))
+                ) : (
+                  <Text style={styles.emptyState}>No wishlist saves yet.</Text>
+                )}
+              </View>
+
+              <View style={styles.bucketSection}>
+                <Text style={styles.bucketTitle}>Favourite</Text>
+                {selectedGroup.favourite.length ? (
+                  selectedGroup.favourite.map((entry) => (
+                    <Text key={`fav-${makeEntryKey(entry)}`} style={styles.bucketItem}>
+                      • {entry.pin.label}
+                    </Text>
+                  ))
+                ) : (
+                  <Text style={styles.emptyState}>No favourite saves yet.</Text>
+                )}
+              </View>
             </View>
-          );
-        })
+          ) : null}
+        </>
       )}
     </ScrollView>
   );
@@ -303,12 +459,6 @@ function Stat({ label, value }: { label: string; value: number }) {
     </View>
   );
 }
-
-const badgeColors: Record<SavedListDefinition["visibility"], { color: string; backgroundColor: string }> = {
-  public: { color: "#047857", backgroundColor: "rgba(4,120,87,0.12)" },
-  followers: { color: "#7c2d12", backgroundColor: "rgba(124,45,18,0.12)" },
-  private: { color: "#1d4ed8", backgroundColor: "rgba(29,78,216,0.12)" },
-};
 
 const styles = StyleSheet.create({
   container: {
@@ -428,36 +578,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#94a3b8",
   },
-  listCard: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 16,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 1,
-    marginBottom: 12,
-  },
-  listHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  listName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#0f172a",
-  },
-  badge: {
-    textTransform: "capitalize",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: "600",
-  },
   listDescription: {
     fontSize: 14,
     color: "#475569",
@@ -466,6 +586,95 @@ const styles = StyleSheet.create({
   listMeta: {
     fontSize: 13,
     color: "#94a3b8",
+  },
+  gallery: {
+    gap: 12,
+    paddingBottom: 8,
+  },
+  galleryCard: {
+    width: 170,
+    borderRadius: 16,
+    backgroundColor: "#fff",
+    padding: 16,
+    marginRight: 12,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
+  },
+  galleryCardSelected: {
+    borderWidth: 2,
+    borderColor: "#0f172a",
+  },
+  galleryTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0f172a",
+    marginBottom: 12,
+  },
+  galleryMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  galleryCount: {
+    fontSize: 13,
+    color: "#475569",
+  },
+  visibilityTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  visibilityTagPublic: {
+    backgroundColor: "rgba(4,120,87,0.12)",
+  },
+  visibilityTagFollowers: {
+    backgroundColor: "rgba(124,45,18,0.12)",
+  },
+  visibilityTagPrivate: {
+    backgroundColor: "rgba(29,78,216,0.12)",
+  },
+  visibilityTagLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  detailSection: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 16,
+    gap: 18,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  detailHeader: {
+    gap: 6,
+  },
+  detailTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  detailMap: {
+    height: 220,
+    borderRadius: 16,
+  },
+  bucketSection: {
+    gap: 8,
+  },
+  bucketTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  bucketItem: {
+    fontSize: 15,
+    color: "#1e293b",
   },
   followButton: {
     borderRadius: 999,
