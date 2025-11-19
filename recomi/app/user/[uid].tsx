@@ -342,12 +342,11 @@ export default function UserProfileScreen() {
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Lists</Text>
-        {!isSelf ? <Text style={styles.sectionSubtitle}>Only public lists are visible.</Text> : null}
       </View>
 
       {groupedLists.length === 0 ? (
         <Text style={styles.emptyState}>
-          {isSelf ? "You haven't created any lists yet." : "No public lists to show."}
+          {isSelf ? "You haven't created any lists yet." : "No lists to show yet."}
         </Text>
       ) : (
         <>
@@ -360,8 +359,6 @@ export default function UserProfileScreen() {
             renderItem={({ item }) => {
               const total = item.wishlist.length + item.favourite.length;
               const isSelected = item.definition.id === selectedListId;
-              const visibility = item.definition.visibility ?? "public";
-              const visibilityLabel = visibility.charAt(0).toUpperCase() + visibility.slice(1);
               return (
                 <Pressable
                   style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
@@ -374,18 +371,6 @@ export default function UserProfileScreen() {
                     <Text style={styles.galleryCount}>
                       {total} {total === 1 ? "place" : "places"}
                     </Text>
-                    <View
-                      style={[
-                        styles.visibilityTag,
-                        visibility === "public"
-                          ? styles.visibilityTagPublic
-                          : visibility === "followers"
-                          ? styles.visibilityTagFollowers
-                          : styles.visibilityTagPrivate,
-                      ]}
-                    >
-                      <Text style={styles.visibilityTagLabel}>{visibilityLabel}</Text>
-                    </View>
                   </View>
                 </Pressable>
               );
@@ -571,10 +556,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#0f172a",
   },
-  sectionSubtitle: {
-    fontSize: 13,
-    color: "#94a3b8",
-  },
   emptyState: {
     fontSize: 15,
     color: "#94a3b8",
@@ -622,25 +603,6 @@ const styles = StyleSheet.create({
   galleryCount: {
     fontSize: 13,
     color: "#475569",
-  },
-  visibilityTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  visibilityTagPublic: {
-    backgroundColor: "rgba(4,120,87,0.12)",
-  },
-  visibilityTagFollowers: {
-    backgroundColor: "rgba(124,45,18,0.12)",
-  },
-  visibilityTagPrivate: {
-    backgroundColor: "rgba(29,78,216,0.12)",
-  },
-  visibilityTagLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#0f172a",
   },
   detailSection: {
     backgroundColor: "#fff",
