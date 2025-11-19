@@ -79,6 +79,27 @@ export type ListUsersResult = {
   cursor: QueryDocumentSnapshot<UserDocument> | null
 }
 
+export type ListVisibility = "private" | "followers" | "public"
+
+export type ListVisibilityContext = {
+  isSelf: boolean
+  isFollower: boolean
+}
+
+export function canViewList(
+  visibility: ListVisibility | undefined,
+  context: ListVisibilityContext,
+): boolean {
+  const normalized = visibility ?? "public"
+  if (normalized === "public") {
+    return true
+  }
+  if (normalized === "followers") {
+    return context.isSelf || context.isFollower
+  }
+  return context.isSelf
+}
+
 const DEFAULT_LIMIT = 25
 
 const sanitizeUsername = (value: string) =>

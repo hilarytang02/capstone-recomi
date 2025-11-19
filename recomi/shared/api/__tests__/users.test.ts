@@ -65,6 +65,7 @@ const mockServerTimestamp = firestoreMock.serverTimestamp;
 import type { Firestore } from "firebase/firestore";
 
 import {
+  canViewList,
   followUser,
   getFollowCounts,
   getUserProfile,
@@ -224,6 +225,25 @@ describe("user profile helpers (mocked Firestore)", () => {
       id: "mock-id",
       displayName: "Solo User",
       username: "solo",
+    });
+  });
+
+  describe("canViewList", () => {
+    it("allows public lists for any viewer and treats undefined visibility as public", () => {
+      expect(canViewList("public", { isSelf: false, isFollower: false })).toBe(true);
+      expect(canViewList(undefined, { isSelf: false, isFollower: false })).toBe(true);
+    });
+
+    it("allows follower-only lists for self or followers", () => {
+      expect(canViewList("followers", { isSelf: false, isFollower: true })).toBe(true);
+      expect(canViewList("followers", { isSelf: true, isFollower: false })).toBe(true);
+      expect(canViewList("followers", { isSelf: false, isFollower: false })).toBe(false);
+    });
+
+    it("restricts private lists to the owner only", () => {
+      expect(canViewList("private", { isSelf: true, isFollower: false })).toBe(true);
+      expect(canViewList("private", { isSelf: false, isFollower: true })).toBe(false);
+      expect(canViewList("private", { isSelf: false, isFollower: false })).toBe(false);
     });
   });
 });

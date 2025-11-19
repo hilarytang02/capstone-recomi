@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, onSnapshot } from "firebase/firestore";
 
 import { firestore } from "@/shared/firebase/app";
-import { USERS_COLLECTION, followUser, getFollowCounts, isFollowing, type UserDocument, unfollowUser } from "@/shared/api/users";
+import { USERS_COLLECTION, canViewList, followUser, getFollowCounts, isFollowing, type UserDocument, unfollowUser } from "@/shared/api/users";
 import MapView, { Marker, type Region } from "@/components/MapView";
 import type { SavedEntry, SavedListDefinition } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
@@ -131,9 +131,10 @@ export default function UserProfileScreen() {
   }, [entries]);
 
   const visibleLists = React.useMemo(() => {
-    if (isSelf) return lists;
-    return lists.filter((list) => list.visibility === "public");
-  }, [isSelf, lists]);
+    return lists.filter((list) =>
+      canViewList(list.visibility, { isSelf, isFollower: Boolean(isFollowingUser) })
+    );
+  }, [isFollowingUser, isSelf, lists]);
 
   const groupedLists = React.useMemo<GroupedList[]>(() => {
     return visibleLists.map((definition) => {
