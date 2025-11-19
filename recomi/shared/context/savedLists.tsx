@@ -24,6 +24,17 @@ export type SavedEntry = {
   savedAt: number
 }
 
+export type LikedListRef = {
+  ownerId: string
+  ownerDisplayName?: string | null
+  ownerUsername?: string | null
+  listId: string
+  listName: string
+  description?: string | null
+  wishlist: SavedEntry[]
+  favourite: SavedEntry[]
+}
+
 export const LIST_VISIBILITY_OPTIONS: Array<{
   value: SavedListDefinition["visibility"]
   label: string
@@ -51,10 +62,15 @@ const EMPTY_LIST_DEFINITIONS: SavedListDefinition[] = []
 type SavedListsContextValue = {
   lists: SavedListDefinition[]
   entries: SavedEntry[]
+  likedLists: LikedListRef[]
+  likedListsVisible: boolean
   addEntry: (entry: SavedEntry) => void
   removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
   addList: (name: string, visibility?: SavedListDefinition["visibility"]) => SavedListDefinition
   removeList: (listId: string) => void
+  likeList: (liked: LikedListRef) => void
+  unlikeList: (ownerId: string, listId: string) => void
+  setLikedListsVisibility: (visible: boolean) => void
   requestMapFocus: (entry: SavedEntry) => void
   mapFocusEntry: SavedEntry | null
   clearMapFocus: () => void
@@ -67,6 +83,8 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   const { user } = useAuth()
   const [lists, setLists] = React.useState<SavedListDefinition[]>(EMPTY_LIST_DEFINITIONS)
   const [entries, setEntries] = React.useState<SavedEntry[]>([])
+  const [likedLists, setLikedLists] = React.useState<LikedListRef[]>([])
+  const [likedListsVisible, setLikedListsVisible] = React.useState(true)
   const [loading, setLoading] = React.useState(true)
   const isHydratedRef = React.useRef(false)
 
@@ -75,11 +93,13 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     isHydratedRef.current = false
 
     if (!user) {
-    setLists(EMPTY_LIST_DEFINITIONS)
-    setEntries([])
-    setTimeout(() => {
-      isHydratedRef.current = true
-    }, 0)
+      setLists(EMPTY_LIST_DEFINITIONS)
+      setEntries([])
+      setLikedLists([])
+      setLikedListsVisible(true)
+      setTimeout(() => {
+        isHydratedRef.current = true
+      }, 0)
       setLoading(false)
       return
     }
@@ -93,6 +113,8 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
           const data = snapshot.data() as {
             lists?: SavedListDefinition[]
             entries?: SavedEntry[]
+            likedLists?: LikedListRef[]
+            likedListsVisible?: boolean
           }
 
           const rawLists = Array.isArray(data.lists) ? data.lists : []
@@ -105,9 +127,22 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
 
           setLists(nextLists)
           setEntries(Array.isArray(data.entries) ? data.entries : [])
+          const rawLiked = Array.isArray(data.likedLists) ? (data.likedLists as LikedListRef[]) : []
+          setLikedLists(
+            rawLiked.map((item) => ({
+              ...item,
+              wishlist: Array.isArray(item.wishlist) ? item.wishlist : [],
+              favourite: Array.isArray(item.favourite) ? item.favourite : [],
+            })),
+          )
+          setLikedListsVisible(
+            typeof data.likedListsVisible === "boolean" ? data.likedListsVisible : true,
+          )
         } else {
           setLists(EMPTY_LIST_DEFINITIONS)
           setEntries([])
+          setLikedLists([])
+          setLikedListsVisible(true)
         }
 
         isHydratedRef.current = true
@@ -115,8 +150,10 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       },
       (error) => {
         console.error("Failed to load saved lists", error)
-        setLists(INITIAL_LIST_DEFINITIONS)
+        setLists(EMPTY_LIST_DEFINITIONS)
         setEntries([])
+        setLikedLists([])
+        setLikedListsVisible(true)
         isHydratedRef.current = true
         setLoading(false)
       }
@@ -126,7 +163,12 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   }, [user])
 
   const persist = React.useCallback(
-    async (nextLists: SavedListDefinition[], nextEntries: SavedEntry[]) => {
+    async (
+      nextLists: SavedListDefinition[] = lists,
+      nextEntries: SavedEntry[] = entries,
+      nextLikedLists: LikedListRef[] = likedLists,
+      nextLikedListsVisible: boolean = likedListsVisible,
+    ) => {
       if (!user || !isHydratedRef.current) return
       try {
         await setDoc(
@@ -134,6 +176,8 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
           {
             lists: nextLists,
             entries: nextEntries,
+            likedLists: nextLikedLists,
+            likedListsVisible: nextLikedListsVisible,
             updatedAt: serverTimestamp(),
           },
           { merge: false }
@@ -142,7 +186,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
         console.error("Failed to persist saved lists", error)
       }
     },
-    [user]
+    [entries, likedLists, likedListsVisible, lists, user]
   )
 
   const addEntry = React.useCallback(
@@ -234,6 +278,45 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     setMapFocusEntry(null)
   }, [])
 
+  const likeList = React.useCallback(
+    (liked: LikedListRef) => {
+      setLikedLists((prev) => {
+        if (prev.some((entry) => entry.ownerId === liked.ownerId && entry.listId === liked.listId)) {
+          return prev
+        }
+        const updated = [...prev, liked]
+        void persist(lists, entries, updated)
+        return updated
+      })
+    },
+    [entries, lists, persist]
+  )
+
+  const unlikeList = React.useCallback(
+    (ownerId: string, listId: string) => {
+      setLikedLists((prev) => {
+        const updated = prev.filter((entry) => !(entry.ownerId === ownerId && entry.listId === listId))
+        if (updated.length === prev.length) {
+          return prev
+        }
+        void persist(lists, entries, updated)
+        return updated
+      })
+    },
+    [entries, lists, persist]
+  )
+
+  const setLikedListsVisibilityValue = React.useCallback(
+    (visible: boolean) => {
+      setLikedListsVisible((prev) => {
+        if (prev === visible) return prev
+        void persist(lists, entries, likedLists, visible)
+        return visible
+      })
+    },
+    [entries, likedLists, lists, persist]
+  )
+
   const value = React.useMemo(
     () => ({
       lists,
@@ -242,6 +325,11 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       removeEntry,
       addList,
       removeList,
+      likedLists,
+      likedListsVisible,
+      likeList,
+      unlikeList,
+      setLikedListsVisibility: setLikedListsVisibilityValue,
       requestMapFocus,
       mapFocusEntry,
       clearMapFocus,
@@ -254,6 +342,11 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       removeEntry,
       addList,
       removeList,
+      likedLists,
+      likedListsVisible,
+      likeList,
+      unlikeList,
+      setLikedListsVisibilityValue,
       requestMapFocus,
       mapFocusEntry,
       clearMapFocus,

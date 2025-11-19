@@ -15,6 +15,7 @@ import {
   Text,
   TextInput,
   View,
+  Switch,
 } from "react-native";
 import MapView, { Marker, type Region } from "../../components/MapView";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -78,6 +79,9 @@ export default function ProfileScreen() {
     removeList,
     addList,
     removeEntry,
+    likedLists,
+    likedListsVisible,
+    setLikedListsVisibility,
     loading: listsLoading,
   } = useSavedLists();
   const [deleteMode, setDeleteMode] = React.useState(false);
@@ -95,6 +99,13 @@ export default function ProfileScreen() {
   const [signingOut, setSigningOut] = React.useState(false);
   const [mapModalVisible, setMapModalVisible] = React.useState(false);
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
+  const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
+  const handleLikedVisibilityToggle = React.useCallback(
+    (value: boolean) => {
+      setLikedListsVisibility(value);
+    },
+    [setLikedListsVisibility],
+  );
 
   const grouped = React.useMemo<GroupedList[]>(() => {
     return lists.map((definition) => {
@@ -423,6 +434,16 @@ export default function ProfileScreen() {
     );
   }, [selectedGroup]);
 
+  React.useEffect(() => {
+    if (!likedLists.length) {
+      setExpandedLikedId(null);
+      return;
+    }
+    setExpandedLikedId((current) =>
+      current && likedLists.some((item) => item.listId === current) ? current : null,
+    );
+  }, [likedLists]);
+
   return (
     <View style={styles.screen}>
       <ScrollView
@@ -685,6 +706,97 @@ export default function ProfileScreen() {
             )}
           </View>
         ) : null}
+        <View style={styles.likedSection}>
+          <View style={styles.likedHeader}>
+            <Text style={styles.sectionTitle}>Liked Lists</Text>
+            <View style={styles.likedToggleRow}>
+              <Text style={styles.likedToggleLabel}>
+                {likedListsVisible ? "Visible to others" : "Hidden from others"}
+              </Text>
+              <Switch
+                value={likedListsVisible}
+                onValueChange={handleLikedVisibilityToggle}
+                thumbColor={likedListsVisible ? "#0f172a" : "#e2e8f0"}
+                trackColor={{ false: "#cbd5f5", true: "#a5b4fc" }}
+              />
+            </View>
+          </View>
+          {likedLists.length ? (
+            likedLists.map((item) => {
+              const pins = [...item.wishlist, ...item.favourite];
+              const region = computeRegion(pins);
+              const isExpanded = expandedLikedId === item.listId;
+              return (
+                <View key={`${item.ownerId}-${item.listId}`} style={styles.likedAccordionCard}>
+                  <Pressable
+                    style={styles.likedAccordionHeader}
+                    onPress={() =>
+                      setExpandedLikedId((current) => (current === item.listId ? null : item.listId))
+                    }
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.likedCardTitle} numberOfLines={1}>
+                        {item.listName}
+                      </Text>
+                      <Text style={styles.likedCardOwner} numberOfLines={1}>
+                        by {item.ownerDisplayName ?? item.ownerUsername ?? "Unknown user"}
+                      </Text>
+                    </View>
+                    <FontAwesome
+                      name={isExpanded ? "chevron-up" : "chevron-down"}
+                      size={16}
+                      color="#0f172a"
+                    />
+                  </Pressable>
+                  {isExpanded ? (
+                    <View style={styles.likedAccordionBody}>
+                      <MapView
+                        style={styles.likedMap}
+                        initialRegion={region}
+                        key={`${item.listId}-liked-map`}
+                      >
+                        {pins.map((entry) => (
+                          <Marker
+                            key={`${item.listId}-pin-${entry.savedAt}`}
+                            coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                            title={entry.pin.label}
+                            pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                          />
+                        ))}
+                      </MapView>
+                      <View style={styles.likedBucketSection}>
+                        <Text style={styles.bucketTitle}>Wishlist</Text>
+                        {item.wishlist.length ? (
+                          item.wishlist.map((entry) => (
+                            <Text key={`liked-wish-${entry.savedAt}`} style={styles.bucketItem}>
+                              • {entry.pin.label}
+                            </Text>
+                          ))
+                        ) : (
+                          <Text style={styles.emptyState}>No wishlist saves yet.</Text>
+                        )}
+                      </View>
+                      <View style={styles.likedBucketSection}>
+                        <Text style={styles.bucketTitle}>Favourite</Text>
+                        {item.favourite.length ? (
+                          item.favourite.map((entry) => (
+                            <Text key={`liked-fav-${entry.savedAt}`} style={styles.bucketItem}>
+                              • {entry.pin.label}
+                            </Text>
+                          ))
+                        ) : (
+                          <Text style={styles.emptyState}>No favourite saves yet.</Text>
+                        )}
+                      </View>
+                    </View>
+                  ) : null}
+                </View>
+              );
+            })
+          ) : (
+            <Text style={styles.emptyState}>You haven’t liked any lists yet.</Text>
+          )}
+        </View>
       </ScrollView>
 
       <PinDetailSheet entry={activePinEntry} onClose={closeActivePinSheet} bottomInset={insets.bottom} />
@@ -1200,6 +1312,66 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: '600',
+  },
+  likedSection: {
+    marginTop: 24,
+    gap: 12,
+  },
+  likedHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  likedToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  likedToggleLabel: {
+    fontSize: 13,
+    color: '#475569',
+  },
+  likedAccordionCard: {
+    borderRadius: 18,
+    backgroundColor: '#fff',
+    padding: 12,
+    marginBottom: 12,
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  likedAccordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  likedAccordionBody: {
+    marginTop: 12,
+    gap: 12,
+  },
+  likedMap: {
+    height: 180,
+    borderRadius: 14,
+  },
+  likedBucketSection: {
+    gap: 6,
+  },
+  likedCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  likedCardOwner: {
+    fontSize: 14,
+    color: '#475569',
+    marginTop: 6,
+  },
+  likedCardDescription: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 8,
   },
   mapModalBackdrop: {
     flex: 1,

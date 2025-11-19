@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/components/useColorScheme';
 import { AuthGate, AuthProvider } from '@/shared/context/auth';
+import { SavedListsProvider } from '@/shared/context/savedLists';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -52,18 +53,20 @@ function RootLayoutNav() {
   return (
     <AuthProvider>
       <AuthGate>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-            <Stack.Screen
-              name="user/[uid]"
-              options={{
-                title: 'Profile',
-              }}
-            />
-          </Stack>
-        </ThemeProvider>
+        <SavedListsProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+              <Stack.Screen
+                name="user/[uid]"
+                options={{
+                  title: 'Profile',
+                }}
+              />
+            </Stack>
+          </ThemeProvider>
+        </SavedListsProvider>
       </AuthGate>
     </AuthProvider>
   );

@@ -1,6 +1,8 @@
 import React from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
   FlatList,
   Image,
   Modal,
@@ -17,7 +19,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { firestore } from "@/shared/firebase/app";
 import { USERS_COLLECTION, canViewList, followUser, getFollowCounts, isFollowing, type UserDocument, unfollowUser } from "@/shared/api/users";
 import MapView, { Marker, type Region } from "@/components/MapView";
-import type { SavedEntry, SavedListDefinition } from "@/shared/context/savedLists";
+import { useSavedLists, type LikedListRef, type SavedEntry, type SavedListDefinition } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "@/components/PinDetailSheet";
@@ -69,6 +71,7 @@ export default function UserProfileScreen() {
   const { uid } = useLocalSearchParams<{ uid?: string | string[] }>();
   const resolvedUid = Array.isArray(uid) ? uid[0] : uid;
   const { user } = useAuth();
+  const { likedLists: myLikedLists, likeList, unlikeList } = useSavedLists();
   const insets = useSafeAreaInsets();
 
   const [profile, setProfile] = React.useState<UserProfileData | null>(null);
@@ -86,6 +89,9 @@ export default function UserProfileScreen() {
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
   const previewMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const modalMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
+  const feedbackAnim = React.useRef(new Animated.Value(0)).current;
+  const [feedbackMessage, setFeedbackMessage] = React.useState<string | null>(null);
+  const feedbackTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   React.useEffect(() => {
     if (!resolvedUid) {
@@ -129,6 +135,13 @@ export default function UserProfileScreen() {
     if (!profile?.entries || !Array.isArray(profile.entries)) return [] as SavedEntry[];
     return profile.entries as SavedEntry[];
   }, [profile?.entries]);
+
+  const likedListsFromProfile = React.useMemo<LikedListRef[]>(() => {
+    if (!profile?.likedLists || !Array.isArray(profile.likedLists)) return [];
+    return profile.likedLists as LikedListRef[];
+  }, [profile?.likedLists]);
+
+  const likedListsVisible = profile?.likedListsVisible !== false;
 
   const entriesByList = React.useMemo(() => {
     return entries.reduce<Record<string, SavedEntry[]>>((acc, entry) => {
@@ -190,6 +203,8 @@ export default function UserProfileScreen() {
     focusRegionOnMaps(regionForMap, 0);
   }, [regionForMap, focusRegionOnMaps]);
 
+  const canShowLikedLists = likedListsFromProfile.length > 0 && (isSelf || likedListsVisible);
+
   const focusEntryRegion = React.useCallback(
     (entry: SavedEntry) => {
       const nextLatDelta =
@@ -226,6 +241,42 @@ export default function UserProfileScreen() {
     [focusEntryRegion],
   );
 
+  const showFeedback = React.useCallback(
+    (message: string) => {
+      if (feedbackTimeoutRef.current) {
+        clearTimeout(feedbackTimeoutRef.current);
+        feedbackTimeoutRef.current = null;
+      }
+      setFeedbackMessage(message);
+      Animated.timing(feedbackAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => {
+        feedbackTimeoutRef.current = setTimeout(() => {
+          Animated.timing(feedbackAnim, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(({ finished }) => {
+            if (finished) {
+              setFeedbackMessage(null);
+            }
+          });
+        }, 1500);
+      });
+    },
+    [feedbackAnim],
+  );
+
+  React.useEffect(() => {
+    return () => {
+      if (feedbackTimeoutRef.current) {
+        clearTimeout(feedbackTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleMarkerPress = React.useCallback(
     (entry: SavedEntry) => {
       setActivePinEntry(entry);
@@ -237,6 +288,46 @@ export default function UserProfileScreen() {
   const closeActivePinSheet = React.useCallback(() => {
     setActivePinEntry(null);
   }, []);
+
+  const isListLiked = React.useCallback(
+    (ownerId: string, listId: string) =>
+      myLikedLists.some((entry) => entry.ownerId === ownerId && entry.listId === listId),
+    [myLikedLists],
+  );
+
+  const handleToggleListLike = React.useCallback(
+    (definition: SavedListDefinition) => {
+      if (!profile) return;
+      if (!user) {
+        Alert.alert("Sign in to star lists", "You need to be signed in to like lists.");
+        return;
+      }
+      if (isListLiked(profile.id, definition.id)) {
+        unlikeList(profile.id, definition.id);
+        showFeedback("Removed from liked lists");
+      } else {
+        const related = entriesByList[definition.id] ?? [];
+        const wishlistEntries = related
+          .filter((entry) => entry.bucket === "wishlist")
+          .map((entry) => ({ ...entry }));
+        const favouriteEntries = related
+          .filter((entry) => entry.bucket === "favourite")
+          .map((entry) => ({ ...entry }));
+        likeList({
+          ownerId: profile.id,
+          ownerDisplayName: profile.displayName ?? profile.username ?? profile.email ?? null,
+          ownerUsername: profile.username ?? null,
+          listId: definition.id,
+          listName: definition.name,
+          description: definition.description ?? null,
+          wishlist: wishlistEntries,
+          favourite: favouriteEntries,
+        });
+        showFeedback("Added to liked lists");
+      }
+    },
+    [entriesByList, isListLiked, likeList, profile, showFeedback, unlikeList, user],
+  );
 
   React.useEffect(() => {
     if (mapModalVisible && !selectedGroup) {
@@ -365,13 +456,37 @@ export default function UserProfileScreen() {
     );
   }
 
+  const scrollTopPadding = Math.max(insets.top, 16) + (feedbackMessage ? 40 : 0);
+
   return (
     <View style={styles.screen}>
+      {feedbackMessage ? (
+        <Animated.View
+          style={[
+            styles.feedbackBanner,
+            {
+              top: Math.max(insets.top, 16),
+              opacity: feedbackAnim,
+              transform: [
+                {
+                  translateY: feedbackAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-10, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={styles.feedbackText}>{feedbackMessage}</Text>
+        </Animated.View>
+      ) : null}
       <ScrollView
         style={styles.container}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingTop: Math.max(insets.top, 16) },
+          { paddingTop: scrollTopPadding },
         ]}
       >
         <View style={styles.header}>
@@ -442,19 +557,36 @@ export default function UserProfileScreen() {
             keyExtractor={(item) => item.definition.id}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.gallery}
-            renderItem={({ item }) => {
-              const total = item.wishlist.length + item.favourite.length;
-              const isSelected = item.definition.id === selectedListId;
-              return (
+          renderItem={({ item }) => {
+            const total = item.wishlist.length + item.favourite.length;
+            const isSelected = item.definition.id === selectedListId;
+            const likedByMe = profile ? isListLiked(profile.id, item.definition.id) : false;
+            return (
+              <Pressable
+                style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
+                onPress={() => setSelectedListId(item.definition.id)}
+              >
                 <Pressable
-                  style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
-                  onPress={() => setSelectedListId(item.definition.id)}
+                  style={[styles.cardStarButton, likedByMe && styles.cardStarButtonActive]}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    handleToggleListLike(item.definition);
+                  }}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={likedByMe ? "Unstar list" : "Star list"}
                 >
-                  <Text style={styles.galleryTitle} numberOfLines={2}>
-                    {item.definition.name}
-                  </Text>
-                  <View style={styles.galleryMeta}>
-                    <Text style={styles.galleryCount}>
+                  <FontAwesome
+                    name={likedByMe ? "star" : "star-o"}
+                    size={16}
+                    color={likedByMe ? "#f59e0b" : "#0f172a"}
+                  />
+                </Pressable>
+                <Text style={styles.galleryTitle} numberOfLines={2}>
+                  {item.definition.name}
+                </Text>
+                <View style={styles.galleryMeta}>
+                  <Text style={styles.galleryCount}>
                       {total} {total === 1 ? "place" : "places"}
                     </Text>
                   </View>
@@ -545,6 +677,37 @@ export default function UserProfileScreen() {
           ) : null}
         </>
       )}
+      {canShowLikedLists ? (
+        <View style={styles.likedSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Liked Lists</Text>
+            {!likedListsVisible && isSelf ? (
+              <Text style={styles.likedHiddenLabel}>Hidden from visitors</Text>
+            ) : null}
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.likedScroll}
+          >
+            {likedListsFromProfile.map((item) => (
+              <View key={`${item.ownerId}-${item.listId}`} style={styles.likedCard}>
+                <Text style={styles.likedCardTitle} numberOfLines={2}>
+                  {item.listName}
+                </Text>
+                <Text style={styles.likedCardOwner} numberOfLines={1}>
+                  by {item.ownerDisplayName ?? item.ownerUsername ?? "Unknown user"}
+                </Text>
+                {item.description ? (
+                  <Text style={styles.likedCardDescription} numberOfLines={2}>
+                    {item.description}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
       </ScrollView>
 
       <PinDetailSheet entry={activePinEntry} onClose={closeActivePinSheet} bottomInset={insets.bottom} />
@@ -764,6 +927,23 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     marginBottom: 12,
   },
+  cardStarButton: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  cardStarButtonActive: {
+    backgroundColor: "rgba(250,204,21,0.15)",
+    borderColor: "#fbbf24",
+  },
   galleryMeta: {
     flexDirection: "row",
     alignItems: "center",
@@ -837,6 +1017,45 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#1e293b",
   },
+  likedSection: {
+    marginTop: 24,
+    gap: 12,
+  },
+  likedHiddenLabel: {
+    fontSize: 12,
+    color: "#94a3b8",
+  },
+  likedScroll: {
+    gap: 12,
+    paddingVertical: 4,
+  },
+  likedCard: {
+    width: 200,
+    borderRadius: 18,
+    backgroundColor: "#fff",
+    padding: 16,
+    marginRight: 12,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  likedCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  likedCardOwner: {
+    fontSize: 14,
+    color: "#475569",
+    marginTop: 6,
+  },
+  likedCardDescription: {
+    fontSize: 13,
+    color: "#64748b",
+    marginTop: 8,
+  },
   followButton: {
     borderRadius: 999,
     paddingVertical: 12,
@@ -868,6 +1087,26 @@ const styles = StyleSheet.create({
   followError: {
     marginTop: 6,
     color: "#b91c1c",
+    textAlign: "center",
+  },
+  feedbackBanner: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 20,
+    borderRadius: 16,
+    backgroundColor: "#0f172a",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  feedbackText: {
+    color: "#fff",
+    fontWeight: "600",
     textAlign: "center",
   },
   mapModalBackdrop: {
