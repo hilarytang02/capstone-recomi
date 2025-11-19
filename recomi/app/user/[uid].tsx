@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +19,7 @@ import { USERS_COLLECTION, canViewList, followUser, getFollowCounts, isFollowing
 import MapView, { Marker, type Region } from "@/components/MapView";
 import type { SavedEntry, SavedListDefinition } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 
 type UserProfileData = UserDocument & {
   id: string;
@@ -79,6 +81,7 @@ export default function UserProfileScreen() {
   const [followingCount, setFollowingCount] = React.useState<number>(0);
   const [countsLoading, setCountsLoading] = React.useState(true);
   const [countsRefreshKey, setCountsRefreshKey] = React.useState(0);
+  const [mapModalVisible, setMapModalVisible] = React.useState(false);
 
   React.useEffect(() => {
     if (!resolvedUid) {
@@ -171,6 +174,20 @@ export default function UserProfileScreen() {
 
   const regionForMap = React.useMemo(() => computeRegion(pinsForMap), [pinsForMap]);
   const totalItems = pinsForMap.length;
+  const openExpandedMap = React.useCallback(() => {
+    if (!selectedGroup) return;
+    setMapModalVisible(true);
+  }, [selectedGroup]);
+
+  const closeExpandedMap = React.useCallback(() => {
+    setMapModalVisible(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (mapModalVisible && !selectedGroup) {
+      setMapModalVisible(false);
+    }
+  }, [mapModalVisible, selectedGroup]);
 
   React.useEffect(() => {
     let active = true;
@@ -284,11 +301,12 @@ export default function UserProfileScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: Math.max(insets.top, 16) }]}
-      contentContainerStyle={styles.contentContainer}
-    >
-      <View style={styles.header}>
+    <>
+      <ScrollView
+        style={[styles.container, { paddingTop: Math.max(insets.top, 16) }]}
+        contentContainerStyle={styles.contentContainer}
+      >
+        <View style={styles.header}>
         {profile.photoURL ? (
           <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
         ) : (
@@ -388,21 +406,34 @@ export default function UserProfileScreen() {
                   {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
                 </Text>
               </View>
-              <MapView
-                key={selectedGroup.definition.id}
-                style={styles.detailMap}
-                region={regionForMap}
-                initialRegion={regionForMap}
-              >
-                {pinsForMap.map((entry) => (
-                  <Marker
-                    key={makeEntryKey(entry)}
-                    coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
-                    title={entry.pin.label}
-                    pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
-                  />
-                ))}
-              </MapView>
+              <View style={styles.mapPreviewWrapper}>
+                <MapView
+                  key={selectedGroup.definition.id}
+                  style={styles.detailMap}
+                  region={regionForMap}
+                  initialRegion={regionForMap}
+                >
+                  {pinsForMap.map((entry) => (
+                    <Marker
+                      key={makeEntryKey(entry)}
+                      coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                      title={entry.pin.label}
+                      pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                    />
+                  ))}
+                </MapView>
+                <Pressable
+                  style={styles.mapExpandOverlay}
+                  onPress={openExpandedMap}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open map with all pins"
+                >
+                  <View style={styles.mapExpandHint}>
+                    <FontAwesome name="expand" size={14} color="#fff" />
+                    <Text style={styles.mapExpandHintText}>Open map</Text>
+                  </View>
+                </Pressable>
+              </View>
 
               <View style={styles.bucketSection}>
                 <Text style={styles.bucketTitle}>Wishlist</Text>
@@ -433,7 +464,56 @@ export default function UserProfileScreen() {
           ) : null}
         </>
       )}
-    </ScrollView>
+      </ScrollView>
+
+      <Modal
+        transparent
+        visible={mapModalVisible}
+        animationType="fade"
+        onRequestClose={closeExpandedMap}
+      >
+        <View style={styles.mapModalBackdrop}>
+          <View style={[styles.mapModalCard, { paddingTop: Math.max(insets.top, 16) }]}>
+            <View style={styles.mapModalHeader}>
+              <Text style={styles.mapModalTitle}>
+                {selectedGroup?.definition.name ?? "List map"}
+              </Text>
+              <Pressable
+                onPress={closeExpandedMap}
+                style={styles.mapModalClose}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close map"
+              >
+                <FontAwesome name="close" size={18} color="#0f172a" />
+              </Pressable>
+            </View>
+            <View style={styles.mapModalBody}>
+              {selectedGroup ? (
+                <MapView
+                  key={`${selectedGroup.definition.id}-expanded`}
+                  style={styles.mapModalMap}
+                  initialRegion={regionForMap}
+                >
+                  {pinsForMap.map((entry) => (
+                    <Marker
+                      key={makeEntryKey(entry)}
+                      coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                      title={entry.pin.label}
+                      pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                    />
+                  ))}
+                </MapView>
+              ) : (
+                <View style={styles.mapModalEmpty}>
+                  <Text style={styles.mapModalEmptyText}>No places to show.</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -626,6 +706,32 @@ const styles = StyleSheet.create({
   detailMap: {
     height: 220,
     borderRadius: 16,
+    width: "100%",
+  },
+  mapPreviewWrapper: {
+    borderRadius: 16,
+    overflow: "hidden",
+    position: "relative",
+  },
+  mapExpandOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    padding: 12,
+  },
+  mapExpandHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(15,23,42,0.75)",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+  },
+  mapExpandHintText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
   },
   bucketSection: {
     gap: 8,
@@ -671,5 +777,56 @@ const styles = StyleSheet.create({
     marginTop: 6,
     color: "#b91c1c",
     textAlign: "center",
+  },
+  mapModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.85)",
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+  },
+  mapModalCard: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    gap: 16,
+  },
+  mapModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  mapModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
+    flex: 1,
+    marginRight: 12,
+  },
+  mapModalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e2e8f0",
+  },
+  mapModalBody: {
+    flex: 1,
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  mapModalMap: {
+    flex: 1,
+  },
+  mapModalEmpty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
+  },
+  mapModalEmptyText: {
+    color: "#94a3b8",
   },
 });
