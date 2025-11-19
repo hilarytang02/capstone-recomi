@@ -46,7 +46,6 @@ export default function FindPeopleScreen() {
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [hasMore, setHasMore] = React.useState(true);
-  const [searchFocused, setSearchFocused] = React.useState(false);
 
   const cursorRef = React.useRef<ListUsersResult["cursor"]>(null);
   const fetchingRef = React.useRef(false);
@@ -125,11 +124,6 @@ export default function FindPeopleScreen() {
     searchInputRef.current?.blur();
   }, []);
 
-  const handleCancelSearch = React.useCallback(() => {
-    dismissKeyboard();
-    setSearchFocused(false);
-  }, [dismissKeyboard]);
-
   const renderItem = React.useCallback(
     ({ item }: { item: EnrichedUserProfile }) => (
       <Pressable
@@ -203,15 +197,8 @@ export default function FindPeopleScreen() {
             clearButtonMode="while-editing"
             returnKeyType="done"
             onSubmitEditing={dismissKeyboard}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
           />
         </View>
-        {searchFocused || query.length ? (
-          <Pressable onPress={handleCancelSearch} style={styles.cancelButton}>
-            <Text style={styles.cancelLabel}>Cancel</Text>
-          </Pressable>
-        ) : null}
       </View>
 
       <FlatList
@@ -262,15 +249,6 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     fontSize: 16,
     color: "#0f172a",
-  },
-  cancelButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  cancelLabel: {
-    color: "#0f172a",
-    fontSize: 15,
-    fontWeight: "600",
   },
   listContent: {
     paddingHorizontal: 16,
