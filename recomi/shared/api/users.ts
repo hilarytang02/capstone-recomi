@@ -41,6 +41,7 @@ export type UserDocument = {
   homeCity?: string | null
   followersCount?: number
   followingCount?: number
+  hasCompletedOnboarding?: boolean
   createdAt?: Date | null
   updatedAt?: Date | null
   lists?: unknown
@@ -108,6 +109,19 @@ const sanitizeUsername = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9._]/g, "")
 
+export async function isUsernameAvailable(username: string, db: Firestore = firestore): Promise<boolean> {
+  const normalized = sanitizeUsername(username)
+  if (!normalized) return false
+  const snapshot = await getDocs(
+    query(
+      collection(db, USERS_COLLECTION),
+      where("usernameLowercase", "==", normalized),
+      limitQuery(1),
+    ),
+  )
+  return snapshot.empty
+}
+
 const buildFallbackUsername = (user: User) => {
   const fromDisplay = user.displayName?.replace(/\s+/g, "")
   const candidateFromDisplay = fromDisplay ? sanitizeUsername(fromDisplay) : ""
@@ -166,6 +180,7 @@ export async function upsertUserProfileFromAuth(
       homeCity: overrides.homeCity ?? data.homeCity ?? null,
       followersCount: data.followersCount ?? 0,
       followingCount: data.followingCount ?? 0,
+      hasCompletedOnboarding: exists ? (data.hasCompletedOnboarding ?? true) : false,
       updatedAt: serverTimestamp(),
     }
 
@@ -223,6 +238,34 @@ export async function listUserProfiles(
     users,
     cursor: docs.length ? docs[docs.length - 1] : null,
   }
+}
+
+export async function completeOnboarding(
+  uid: string,
+  fields: Partial<Pick<UserDocument, "displayName" | "username" | "bio" | "photoURL" | "usernameLowercase" | "hasCompletedOnboarding">>,
+  db: Firestore = firestore,
+): Promise<void> {
+  const normalizedUsername = fields.username ? sanitizeUsername(fields.username) : undefined
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, USERS_COLLECTION, uid)
+    const snapshot = await tx.get(ref)
+    if (!snapshot.exists()) {
+      throw new Error("User document not found for onboarding.")
+    }
+
+    const payload: Record<string, unknown> = {
+      ...fields,
+      hasCompletedOnboarding: true,
+      updatedAt: serverTimestamp(),
+    }
+
+    if (normalizedUsername) {
+      payload.username = normalizedUsername
+      payload.usernameLowercase = normalizedUsername
+    }
+
+    tx.set(ref, payload, { merge: true })
+  })
 }
 
 const followDocId = (followerId: string, followeeId: string) =>

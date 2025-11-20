@@ -6,9 +6,13 @@ import * as WebBrowser from "expo-web-browser";
 import Constants from "expo-constants";
 import type { User } from "@firebase/auth-types";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
+import { Redirect, usePathname } from "expo-router";
 
 import { auth } from "../firebase/app";
 import { upsertUserProfileFromAuth } from "../api/users";
+import { doc, getDoc } from "firebase/firestore";
+import { firestore } from "../firebase/app";
+import { USERS_COLLECTION } from "../api/users";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -19,6 +23,9 @@ type AuthContextValue = {
   error: string | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  onboardingComplete: boolean;
+  onboardingLoading: boolean;
+  setOnboardingComplete: (value: boolean) => void;
 };
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
@@ -36,6 +43,8 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = React.useState(true);
   const [isSigningIn, setIsSigningIn] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [onboardingComplete, setOnboardingComplete] = React.useState(false);
+  const [onboardingLoading, setOnboardingLoading] = React.useState(true);
 
   const useProxy = Constants.appOwnership === "expo";
   const redirectUri = makeRedirectUri({
@@ -66,6 +75,26 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
         void upsertUserProfileFromAuth(firebaseUser).catch((err) => {
           console.error("Failed to ensure user profile", err);
         });
+        void (async () => {
+          try {
+            const snap = await getDoc(doc(firestore, USERS_COLLECTION, firebaseUser.uid));
+            if (!snap.exists()) {
+              setOnboardingComplete(false);
+            } else {
+              const data = snap.data();
+              const flag = typeof data.hasCompletedOnboarding === "boolean" ? data.hasCompletedOnboarding : false;
+              setOnboardingComplete(flag);
+            }
+          } catch (err) {
+            console.error("Failed to check onboarding flag", err);
+            setOnboardingComplete(false);
+          } finally {
+            setOnboardingLoading(false);
+          }
+        })();
+      } else {
+        setOnboardingComplete(false);
+        setOnboardingLoading(false);
       }
     });
     return unsubscribe;
@@ -127,8 +156,18 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo(
-    () => ({ user, initializing, isSigningIn, error, signInWithGoogle, signOut }),
-    [user, initializing, isSigningIn, error, signInWithGoogle, signOut]
+    () => ({
+      user,
+      initializing,
+      isSigningIn,
+      error,
+      signInWithGoogle,
+      signOut,
+      onboardingComplete,
+      onboardingLoading,
+      setOnboardingComplete,
+    }),
+    [user, initializing, isSigningIn, error, signInWithGoogle, signOut, onboardingComplete, onboardingLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -143,7 +182,8 @@ function useAuth() {
 }
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, initializing, isSigningIn, signInWithGoogle, error } = useAuth();
+  const { user, initializing, isSigningIn, signInWithGoogle, error, onboardingComplete, onboardingLoading } = useAuth();
+  const pathname = usePathname();
 
   if (initializing) {
     return (
@@ -161,6 +201,18 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         error={error}
       />
     );
+  }
+
+  if (onboardingLoading) {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#0f172a" />
+      </View>
+    );
+  }
+
+  if (!onboardingComplete && pathname !== "/onboarding") {
+    return <Redirect href="/onboarding" />;
   }
 
   return <>{children}</>;

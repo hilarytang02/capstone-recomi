@@ -20,12 +20,18 @@
       "infoPlist": {
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": ["recomi"]
+            "CFBundleURLSchemes": [
+              "recomi"
+            ]
           },
           {
-            "CFBundleURLSchemes": ["$(EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME)"]
+            "CFBundleURLSchemes": [
+              "$(EXPO_PUBLIC_GOOGLE_IOS_URL_SCHEME)"
+            ]
           }
-        ]
+        ],
+        "NSPhotoLibraryUsageDescription": "Recomi needs access to your photo library so you can choose a profile picture.",
+        "NSCameraUsageDescription": "Recomi uses your camera so you can take a profile picture."
       }
     },
     "android": {
@@ -51,7 +57,8 @@
             "useFrameworks": "static"
           }
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true
