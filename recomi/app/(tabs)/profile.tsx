@@ -935,26 +935,6 @@ type SwipeStrikeItemProps = {
 const STRIKE_THRESHOLD = 60;
 
 function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: SwipeStrikeItemProps) {
-  const strikeProgress = React.useRef(new Animated.Value(marked ? 1 : 0)).current;
-  const [contentWidth, setContentWidth] = React.useState(0);
-
-  const strikeWidth = React.useMemo(
-    () =>
-      strikeProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, Math.max(contentWidth, 1)],
-      }),
-    [contentWidth, strikeProgress],
-  );
-
-  React.useEffect(() => {
-    Animated.timing(strikeProgress, {
-      toValue: editing && marked ? 1 : 0,
-      duration: 160,
-      useNativeDriver: false,
-    }).start();
-  }, [editing, marked, strikeProgress]);
-
   const panResponder = React.useMemo(
     () =>
       PanResponder.create({
@@ -962,60 +942,30 @@ function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: Sw
           editing &&
           Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
           Math.abs(gestureState.dx) > 6,
-        onPanResponderMove: (_, gestureState) => {
-          if (!editing) return;
-          const offset = gestureState.dx;
-          if (offset >= 0) {
-            const clamped = Math.min(STRIKE_THRESHOLD * 1.5, offset);
-            const progress = Math.min(1, Math.max(0, clamped / STRIKE_THRESHOLD));
-            strikeProgress.setValue(progress);
-          } else {
-            const clamped = Math.max(-STRIKE_THRESHOLD * 1.5, offset);
-            const progress = Math.min(1, Math.max(0, 1 + clamped / STRIKE_THRESHOLD));
-            strikeProgress.setValue(progress);
-          }
-        },
+        onPanResponderMove: () => {},
         onPanResponderRelease: (_, gestureState) => {
           if (!editing) return;
           const offset = gestureState.dx;
           if (offset >= STRIKE_THRESHOLD) {
-            Animated.timing(strikeProgress, {
-              toValue: 1,
-              duration: 180,
-              useNativeDriver: false,
-            }).start();
             onMarkedChange(true);
           } else if (offset <= -STRIKE_THRESHOLD) {
-            Animated.timing(strikeProgress, {
-              toValue: 0,
-              duration: 140,
-              useNativeDriver: false,
-            }).start(() => {
-              onMarkedChange(false);
-            });
+            onMarkedChange(false);
           } else {
-            const target = marked ? 1 : 0;
-            Animated.timing(strikeProgress, {
-              toValue: target,
-              duration: 140,
-              useNativeDriver: false,
-            }).start();
+            onMarkedChange(marked);
           }
         },
         onPanResponderTerminate: (_, gestureState) => {
           const offset = gestureState.dx;
           if (offset >= STRIKE_THRESHOLD) {
-            strikeProgress.setValue(1);
             onMarkedChange(true);
           } else if (offset <= -STRIKE_THRESHOLD) {
-            strikeProgress.setValue(0);
             onMarkedChange(false);
           } else {
-            strikeProgress.setValue(marked ? 1 : 0);
+            // unchanged
           }
         },
       }),
-    [editing, marked, onMarkedChange, strikeProgress],
+    [editing, marked, onMarkedChange],
   );
 
   const showPressable = Boolean(onPress);
@@ -1033,21 +983,15 @@ function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: Sw
         onPress={onPress}
         style={styles.bucketItemPressable}
       >
-        <View
-          style={styles.bucketItemContent}
-          onLayout={(event) => setContentWidth(event.nativeEvent.layout.width)}
-        >
-          <Text style={styles.bucketItem}>{label}</Text>
-          <Animated.View
-            pointerEvents="none"
+        <View style={styles.bucketItemContent}>
+          <Text
             style={[
-              styles.bucketStrikeThrough,
-              {
-                width: strikeWidth,
-                opacity: strikeProgress,
-              },
+              styles.bucketItem,
+              marked && styles.bucketItemStruck,
             ]}
-          />
+          >
+            {label}
+          </Text>
         </View>
       </Pressable>
     </Animated.View>
@@ -1436,6 +1380,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569',
   },
+  bucketItemStruck: {
+    textDecorationLine: 'line-through',
+    textDecorationColor: '#cbd5f5',
+  },
   bucketItemWrapper: {
     paddingVertical: 6,
     position: 'relative',
@@ -1449,15 +1397,6 @@ const styles = StyleSheet.create({
   bucketItemContent: {
     position: 'relative',
     paddingHorizontal: 4,
-  },
-  bucketStrikeThrough: {
-    position: 'absolute',
-    height: 2,
-    backgroundColor: '#cbd5f5',
-    top: '50%',
-    marginTop: -1,
-    borderRadius: 999,
-    left: 0,
   },
   emptyState: {
     fontSize: 13,
