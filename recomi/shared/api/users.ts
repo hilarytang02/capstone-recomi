@@ -10,6 +10,7 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   startAfter,
   where,
   type Firestore,
@@ -246,26 +247,19 @@ export async function completeOnboarding(
   db: Firestore = firestore,
 ): Promise<void> {
   const normalizedUsername = fields.username ? sanitizeUsername(fields.username) : undefined
-  await runTransaction(db, async (tx) => {
-    const ref = doc(db, USERS_COLLECTION, uid)
-    const snapshot = await tx.get(ref)
-    if (!snapshot.exists()) {
-      throw new Error("User document not found for onboarding.")
-    }
+  const ref = doc(db, USERS_COLLECTION, uid)
+  const payload: Record<string, unknown> = {
+    ...fields,
+    hasCompletedOnboarding: true,
+    updatedAt: serverTimestamp(),
+  }
 
-    const payload: Record<string, unknown> = {
-      ...fields,
-      hasCompletedOnboarding: true,
-      updatedAt: serverTimestamp(),
-    }
+  if (normalizedUsername) {
+    payload.username = normalizedUsername
+    payload.usernameLowercase = normalizedUsername
+  }
 
-    if (normalizedUsername) {
-      payload.username = normalizedUsername
-      payload.usernameLowercase = normalizedUsername
-    }
-
-    tx.set(ref, payload, { merge: true })
-  })
+  await setDoc(ref, payload, { merge: true })
 }
 
 const followDocId = (followerId: string, followeeId: string) =>

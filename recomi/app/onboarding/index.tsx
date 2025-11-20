@@ -14,14 +14,22 @@ export default function OnboardingScreen() {
 
   const [step, setStep] = React.useState<1 | 2>(1);
   const [displayName, setDisplayName] = React.useState(user?.displayName ?? "");
-  const [username, setUsername] = React.useState("" );
+  const [username, setUsername] = React.useState("");
   const [bio, setBio] = React.useState("");
   const [usernameError, setUsernameError] = React.useState<string | null>(null);
   const [checkingUsername, setCheckingUsername] = React.useState(false);
+  const [usernameAvailable, setUsernameAvailable] = React.useState(false);
+  const [lastCheckedUsername, setLastCheckedUsername] = React.useState<string | null>(null);
   const [photoURL, setPhotoURL] = React.useState<string | null>(user?.photoURL ?? null);
   const [saving, setSaving] = React.useState(false);
 
   const normalizedUsername = username.trim().toLowerCase();
+
+  React.useEffect(() => {
+    setUsernameError(null);
+    setUsernameAvailable(false);
+    setLastCheckedUsername(null);
+  }, [username]);
 
   const validateUsername = React.useCallback((value: string) => {
     const normalized = value.trim().toLowerCase();
@@ -38,18 +46,26 @@ export default function OnboardingScreen() {
       setUsernameError(error);
       return false;
     }
+    const normalized = username.trim().toLowerCase();
+    if (lastCheckedUsername && normalized === lastCheckedUsername && usernameAvailable && !usernameError) {
+      return true;
+    }
     setCheckingUsername(true);
     try {
       const available = await isUsernameAvailable(username);
       if (!available) {
         setUsernameError("This username is taken.");
+        setUsernameAvailable(false);
         return false;
       }
       setUsernameError(null);
+      setUsernameAvailable(true);
+      setLastCheckedUsername(normalized);
       return true;
     } catch (err) {
       console.error("Username check failed", err);
       setUsernameError("Unable to check availability right now.");
+      setUsernameAvailable(false);
       return false;
     } finally {
       setCheckingUsername(false);
@@ -57,6 +73,7 @@ export default function OnboardingScreen() {
   }, [username, validateUsername]);
 
   const handleNext = async () => {
+    setUsernameAvailable(false);
     const ok = await handleCheckUsername();
     if (!ok) return;
     setStep(2);
@@ -80,8 +97,10 @@ export default function OnboardingScreen() {
       Alert.alert("Name is required", "Please enter your name.");
       return;
     }
-    const ok = await handleCheckUsername();
-    if (!ok) return;
+    if (!usernameAvailable || (lastCheckedUsername !== normalizedUsername)) {
+      const ok = await handleCheckUsername();
+      if (!ok) return;
+    }
 
     setSaving(true);
     try {
@@ -131,7 +150,11 @@ export default function OnboardingScreen() {
             style={[styles.input, usernameError ? styles.inputError : null]}
             onBlur={handleCheckUsername}
           />
-          {usernameError ? <Text style={styles.errorText}>{usernameError}</Text> : null}
+          {usernameError ? (
+            <Text style={styles.errorText}>{usernameError}</Text>
+          ) : usernameAvailable ? (
+            <Text style={styles.successText}>✓ Username is available</Text>
+          ) : null}
           {checkingUsername ? <Text style={styles.helper}>Checking availability…</Text> : null}
 
           <Text style={styles.label}>Bio (optional)</Text>
@@ -141,7 +164,9 @@ export default function OnboardingScreen() {
             placeholder="Tell people about yourself"
             multiline
             style={[styles.input, styles.textarea]}
+            maxLength={160}
           />
+          <Text style={styles.helper}>{bio.length}/160 characters</Text>
 
           <Pressable style={styles.primaryButton} onPress={handleNext} disabled={checkingUsername}>
             {checkingUsername ? (
@@ -231,6 +256,11 @@ const styles = StyleSheet.create({
   helper: {
     fontSize: 13,
     color: "#64748b",
+  },
+  successText: {
+    fontSize: 13,
+    color: "#16a34a",
+    fontWeight: "600",
   },
   primaryButton: {
     backgroundColor: "#0f172a",
