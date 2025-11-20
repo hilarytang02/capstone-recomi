@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   FlatList,
+  Image,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
@@ -29,6 +30,9 @@ import {
 import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "../../components/PinDetailSheet";
+import { doc, onSnapshot } from "firebase/firestore";
+import { firestore } from "../../shared/firebase/app";
+import { USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
 
 type GroupedList = {
   definition: SavedListDefinition;
@@ -100,12 +104,30 @@ export default function ProfileScreen() {
   const [mapModalVisible, setMapModalVisible] = React.useState(false);
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
   const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
+  const [selfProfile, setSelfProfile] = React.useState<UserDocument | null>(null);
   const handleLikedVisibilityToggle = React.useCallback(
     (value: boolean) => {
       setLikedListsVisibility(value);
     },
     [setLikedListsVisibility],
   );
+
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setSelfProfile(null);
+      return;
+    }
+    const ref = doc(firestore, USERS_COLLECTION, user.uid);
+    const unsubscribe = onSnapshot(ref, (snapshot) => {
+      setSelfProfile(snapshot.exists() ? (snapshot.data() as UserDocument) : null);
+    });
+    return unsubscribe;
+  }, [user?.uid]);
+
+  const profileDisplayName = selfProfile?.displayName ?? user?.displayName ?? "Your profile";
+  const profileUsername = selfProfile?.username ?? null;
+  const profileBio = selfProfile?.bio ?? null;
+  const profilePhoto = selfProfile?.photoURL ?? user?.photoURL ?? null;
 
   const grouped = React.useMemo<GroupedList[]>(() => {
     return lists.map((definition) => {
@@ -453,15 +475,24 @@ export default function ProfileScreen() {
           { paddingTop: insets.top + 24 },
         ]}
       >
-        <View style={styles.headerRow}>
-          <View style={styles.headerCopy}>
-            <Text style={styles.title}>Your Lists</Text>
-            {user?.email ? (
-              <Text style={styles.profileEmail}>{user.email}</Text>
-            ) : null}
-            <Text style={styles.subtitle}>
-              Tap a collection to explore its wishlist and favourites.
-            </Text>
+        <View style={styles.profileHeader}>
+          <View style={styles.profileInfoRow}>
+            {profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.profileAvatar} />
+            ) : (
+              <View style={styles.profileAvatarPlaceholder}>
+                <Text style={styles.profileAvatarInitial}>
+                  {(profileDisplayName ?? "?").slice(0, 1).toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <View style={styles.profileTextBlock}>
+              <Text style={styles.profileName}>{profileDisplayName}</Text>
+              {profileUsername ? (
+                <Text style={styles.profileUsername}>@{profileUsername}</Text>
+              ) : null}
+              {profileBio ? <Text style={styles.profileBio}>{profileBio}</Text> : null}
+            </View>
           </View>
           <Pressable
             style={styles.signOutButton}
@@ -1015,6 +1046,58 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     backgroundColor: '#f8fafc',
     gap: 16,
+  },
+  profileHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  profileInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  profileAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  profileAvatarPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileAvatarInitial: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  profileTextBlock: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  profileUsername: {
+    fontSize: 14,
+    color: '#475569',
+    marginTop: 2,
+  },
+  profileEmail: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  profileBio: {
+    fontSize: 14,
+    color: '#475569',
+    marginTop: 4,
   },
   title: {
     fontSize: 24,
