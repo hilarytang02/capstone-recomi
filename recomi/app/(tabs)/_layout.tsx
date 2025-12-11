@@ -47,6 +47,12 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="profile-edit"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
         name="user/[uid]"
         options={{
           href: null,

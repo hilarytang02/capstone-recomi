@@ -72,6 +72,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(firebaseUser);
       setInitializing(false);
       if (firebaseUser) {
+        setOnboardingLoading(true);
         void upsertUserProfileFromAuth(firebaseUser).catch((err) => {
           console.error("Failed to ensure user profile", err);
         });
@@ -213,6 +214,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!onboardingComplete && pathname !== "/onboarding") {
     return <Redirect href="/onboarding" />;
+  }
+
+  if (onboardingComplete && pathname === "/onboarding") {
+    return <Redirect href="/(tabs)/map" />;
   }
 
   return <>{children}</>;

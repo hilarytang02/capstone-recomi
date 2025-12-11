@@ -21,6 +21,7 @@ import {
 import MapView, { Marker, type Region } from "../../components/MapView";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
+import { useRouter } from "expo-router";
 import {
   useSavedLists,
   type SavedEntry,
@@ -76,6 +77,7 @@ const computeRegion = (pins: SavedEntry[]): Region => {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user, signOut } = useAuth();
   const {
     entries,
@@ -105,6 +107,9 @@ export default function ProfileScreen() {
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
   const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
   const [selfProfile, setSelfProfile] = React.useState<UserDocument | null>(null);
+  const handleOpenAccountEditor = React.useCallback(() => {
+    router.push("/(tabs)/profile-edit");
+  }, [router]);
   const handleLikedVisibilityToggle = React.useCallback(
     (value: boolean) => {
       setLikedListsVisibility(value);
@@ -494,19 +499,29 @@ export default function ProfileScreen() {
               {profileBio ? <Text style={styles.profileBio}>{profileBio}</Text> : null}
             </View>
           </View>
-          <Pressable
-            style={styles.signOutButton}
-            onPress={handleSignOut}
-            disabled={signingOut}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-          >
-            {signingOut ? (
-              <ActivityIndicator size="small" color="#0f172a" />
-            ) : (
-              <Text style={styles.signOutLabel}>Sign out</Text>
-            )}
-          </Pressable>
+          <View style={styles.profileActions}>
+            <Pressable
+              style={styles.editAccountButton}
+              onPress={handleOpenAccountEditor}
+              accessibilityRole="button"
+              accessibilityLabel="Edit account"
+            >
+              <Text style={styles.editAccountLabel}>Edit account</Text>
+            </Pressable>
+            <Pressable
+              style={styles.signOutButton}
+              onPress={handleSignOut}
+              disabled={signingOut}
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+            >
+              {signingOut ? (
+                <ActivityIndicator size="small" color="#0f172a" />
+              ) : (
+                <Text style={styles.signOutLabel}>Sign out</Text>
+              )}
+            </Pressable>
+          </View>
         </View>
 
         <FlatList<GroupedList>
@@ -1059,6 +1074,10 @@ const styles = StyleSheet.create({
     gap: 12,
     flex: 1,
   },
+  profileActions: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
   profileAvatar: {
     width: 64,
     height: 64,
@@ -1099,6 +1118,17 @@ const styles = StyleSheet.create({
     color: '#475569',
     marginTop: 4,
   },
+  editAccountButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#c7d2fe',
+  },
+  editAccountLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#312e81',
+  },
   title: {
     fontSize: 24,
     fontWeight: '700',
@@ -1130,7 +1160,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#cbd5f5',
     backgroundColor: '#e2e8f0',
-    alignSelf: 'flex-start',
   },
   signOutLabel: {
     fontSize: 14,

@@ -241,16 +241,18 @@ export async function listUserProfiles(
   }
 }
 
-export async function completeOnboarding(
+type EditableProfileFields = Partial<Pick<UserDocument, "displayName" | "username" | "bio" | "photoURL">>
+
+const writeProfileDetails = async (
   uid: string,
-  fields: Partial<Pick<UserDocument, "displayName" | "username" | "bio" | "photoURL" | "usernameLowercase" | "hasCompletedOnboarding">>,
-  db: Firestore = firestore,
-): Promise<void> {
+  fields: EditableProfileFields,
+  db: Firestore,
+  options: { markOnboardingComplete?: boolean } = {},
+): Promise<void> => {
   const normalizedUsername = fields.username ? sanitizeUsername(fields.username) : undefined
   const ref = doc(db, USERS_COLLECTION, uid)
   const payload: Record<string, unknown> = {
     ...fields,
-    hasCompletedOnboarding: true,
     updatedAt: serverTimestamp(),
   }
 
@@ -259,7 +261,27 @@ export async function completeOnboarding(
     payload.usernameLowercase = normalizedUsername
   }
 
+  if (options.markOnboardingComplete) {
+    payload.hasCompletedOnboarding = true
+  }
+
   await setDoc(ref, payload, { merge: true })
+}
+
+export async function completeOnboarding(
+  uid: string,
+  fields: EditableProfileFields,
+  db: Firestore = firestore,
+): Promise<void> {
+  await writeProfileDetails(uid, fields, db, { markOnboardingComplete: true })
+}
+
+export async function updateProfileDetails(
+  uid: string,
+  fields: EditableProfileFields,
+  db: Firestore = firestore,
+): Promise<void> {
+  await writeProfileDetails(uid, fields, db)
 }
 
 const followDocId = (followerId: string, followeeId: string) =>
