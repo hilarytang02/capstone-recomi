@@ -185,6 +185,7 @@ function useAuth() {
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, initializing, isSigningIn, signInWithGoogle, error, onboardingComplete, onboardingLoading } = useAuth();
   const pathname = usePathname();
+  const isOnboardingRoute = pathname?.startsWith("/onboarding");
 
   if (initializing) {
     return (
@@ -212,11 +213,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!onboardingComplete && pathname !== "/onboarding") {
+  if (!onboardingComplete && !isOnboardingRoute) {
     return <Redirect href="/onboarding" />;
   }
 
-  if (onboardingComplete && pathname === "/onboarding") {
+  if (onboardingComplete && isOnboardingRoute) {
     return <Redirect href="/(tabs)/map" />;
   }
 
