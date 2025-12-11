@@ -1,0 +1,21 @@
+{
+  "name": "recomi-functions",
+  "private": true,
+  "engines": {
+    "node": "18"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "watch": "tsc --project tsconfig.json --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^11.10.1",
+    "firebase-functions": "^4.4.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
