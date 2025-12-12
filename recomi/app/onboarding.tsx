@@ -85,7 +85,10 @@ export default function OnboardingScreen() {
       Alert.alert("Permission needed", "Please allow photo library access to set a profile picture.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.7,
+    });
     if (!result.canceled && result.assets.length) {
       setPhotoURL(result.assets[0].uri);
     }
