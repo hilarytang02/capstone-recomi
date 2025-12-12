@@ -6,7 +6,14 @@ import * as WebBrowser from "expo-web-browser";
 import Constants from "expo-constants";
 import type { User } from "@firebase/auth-types";
 import type { FirebaseError } from "firebase/app";
-import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut, signInWithEmailAndPassword } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithCredential,
+  signOut as firebaseSignOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+} from "firebase/auth";
 import { Redirect, usePathname } from "expo-router";
 
 import { auth } from "../firebase/app";
@@ -24,6 +31,7 @@ type AuthContextValue = {
   error: string | null;
   signInWithGoogle: () => Promise<void>;
   signInWithUsername: (username: string, password: string) => Promise<void>;
+  createAccountWithEmail: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   onboardingComplete: boolean;
   onboardingLoading: boolean;
@@ -188,6 +196,10 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const createAccountWithEmail = React.useCallback(async (email: string, password: string) => {
+    await createUserWithEmailAndPassword(auth, email.trim(), password);
+  }, []);
+
   const value = React.useMemo(
     () => ({
       user,
@@ -196,12 +208,13 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       error,
       signInWithGoogle,
       signInWithUsername,
+      createAccountWithEmail,
       signOut,
       onboardingComplete,
       onboardingLoading,
       setOnboardingComplete,
     }),
-    [user, initializing, isSigningIn, error, signInWithGoogle, signInWithUsername, signOut, onboardingComplete, onboardingLoading]
+    [user, initializing, isSigningIn, error, signInWithGoogle, signInWithUsername, createAccountWithEmail, signOut, onboardingComplete, onboardingLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
