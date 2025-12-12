@@ -166,21 +166,27 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     await firebaseSignOut(auth);
   }, []);
 
-  const signInWithUsername = React.useCallback(async (username: string, password: string) => {
-    const trimmedUsername = username.trim();
-    if (!trimmedUsername) {
-      throw new Error("Username is required.");
+  const signInWithUsername = React.useCallback(async (identifier: string, password: string) => {
+    const trimmedIdentifier = identifier.trim();
+    if (!trimmedIdentifier) {
+      throw new Error("Username or email is required.");
     }
     if (!password.trim()) {
       throw new Error("Password is required.");
     }
 
     try {
-      const record = await findUserByUsername(trimmedUsername);
-      if (!record || !record.data.email) {
-        throw new Error("No account found for that username.");
+      let emailToUse: string | null = null;
+      if (trimmedIdentifier.includes("@")) {
+        emailToUse = trimmedIdentifier.toLowerCase();
+      } else {
+        const record = await findUserByUsername(trimmedIdentifier);
+        if (!record || !record.data.email) {
+          throw new Error("No account found for that username.");
+        }
+        emailToUse = record.data.email;
       }
-      await signInWithEmailAndPassword(auth, record.data.email, password);
+      await signInWithEmailAndPassword(auth, emailToUse, password);
     } catch (err) {
       console.error("Username sign-in failed", err);
       if (err instanceof FirebaseError) {
