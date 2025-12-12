@@ -14,7 +14,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
 } from "firebase/auth";
-import { Redirect, usePathname } from "expo-router";
+import { useRouter, usePathname } from "expo-router";
 
 import { auth } from "../firebase/app";
 import { findUserByUsername, upsertUserProfileFromAuth } from "../api/users";
@@ -231,39 +231,36 @@ function useAuth() {
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, initializing, onboardingComplete, onboardingLoading } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const isOnboardingRoute = pathname?.startsWith("/onboarding");
   const publicRoutes = ["/welcome", "/login", "/signup"];
   const isPublicRoute = pathname ? publicRoutes.some((route) => pathname === route || pathname.startsWith(route)) : false;
 
-  if (initializing) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#0f172a" />
-      </View>
-    );
-  }
-
-  if (!user) {
-    if (!isPublicRoute) {
-      return <Redirect href="/welcome" />;
+  const redirectHref = React.useMemo(() => {
+    if (!user && !isPublicRoute) {
+      return "/welcome";
     }
-    return <>{children}</>;
-  }
+    if (user && !onboardingLoading && !onboardingComplete && !isOnboardingRoute) {
+      return "/onboarding";
+    }
+    if (user && onboardingComplete && (isOnboardingRoute || isPublicRoute)) {
+      return "/(tabs)/map";
+    }
+    return null;
+  }, [user, isPublicRoute, onboardingComplete, onboardingLoading, isOnboardingRoute]);
 
-  if (onboardingLoading) {
+  React.useEffect(() => {
+    if (redirectHref) {
+      router.replace(redirectHref);
+    }
+  }, [redirectHref, router]);
+
+  if (initializing || onboardingLoading || redirectHref) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#0f172a" />
       </View>
     );
-  }
-
-  if (!onboardingComplete && !isOnboardingRoute) {
-    return <Redirect href="/onboarding" />;
-  }
-
-  if (onboardingComplete && (isOnboardingRoute || isPublicRoute)) {
-    return <Redirect href="/(tabs)/map" />;
   }
 
   return <>{children}</>;
