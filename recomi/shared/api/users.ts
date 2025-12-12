@@ -110,6 +110,26 @@ const sanitizeUsername = (value: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9._]/g, "")
 
+export async function findUserByUsername(username: string, db: Firestore = firestore): Promise<{ id: string; data: UserDocument } | null> {
+  const normalized = sanitizeUsername(username)
+  if (!normalized) return null
+  const snapshot = await getDocs(
+    query(
+      collection(db, USERS_COLLECTION),
+      where("usernameLowercase", "==", normalized),
+      limitQuery(1),
+    ),
+  )
+  if (snapshot.empty) {
+    return null
+  }
+  const docSnapshot = snapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
+  return {
+    id: docSnapshot.id,
+    data: docSnapshot.data(),
+  }
+}
+
 export async function isUsernameAvailable(username: string, db: Firestore = firestore): Promise<boolean> {
   const normalized = sanitizeUsername(username)
   if (!normalized) return false

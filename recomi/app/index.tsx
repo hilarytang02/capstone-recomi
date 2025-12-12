@@ -1,6 +1,10 @@
-import { Redirect } from 'expo-router';
+import { Redirect } from "expo-router";
+import { useAuth } from "@/shared/context/auth";
 
 export default function Index() {
-  return <Redirect href="/(tabs)/map" />;
+  const { user } = useAuth();
+  if (user) {
+    return <Redirect href="/(tabs)/map" />;
+  }
+  return <Redirect href="/welcome" />;
 }
-

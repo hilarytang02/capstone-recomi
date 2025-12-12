@@ -1,16 +1,16 @@
 import React from "react";
-import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View, Platform } from "react-native";
-import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import * as Google from "expo-auth-session/providers/google";
 import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import Constants from "expo-constants";
 import type { User } from "@firebase/auth-types";
-import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
+import type { FirebaseError } from "firebase/app";
+import { GoogleAuthProvider, onAuthStateChanged, signInWithCredential, signOut as firebaseSignOut, signInWithEmailAndPassword } from "firebase/auth";
 import { Redirect, usePathname } from "expo-router";
 
 import { auth } from "../firebase/app";
-import { upsertUserProfileFromAuth } from "../api/users";
+import { findUserByUsername, upsertUserProfileFromAuth } from "../api/users";
 import { doc, getDoc } from "firebase/firestore";
 import { firestore } from "../firebase/app";
 import { USERS_COLLECTION } from "../api/users";
@@ -23,6 +23,7 @@ type AuthContextValue = {
   isSigningIn: boolean;
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithUsername: (username: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   onboardingComplete: boolean;
   onboardingLoading: boolean;
@@ -157,6 +158,36 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     await firebaseSignOut(auth);
   }, []);
 
+  const signInWithUsername = React.useCallback(async (username: string, password: string) => {
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername) {
+      throw new Error("Username is required.");
+    }
+    if (!password.trim()) {
+      throw new Error("Password is required.");
+    }
+
+    try {
+      const record = await findUserByUsername(trimmedUsername);
+      if (!record || !record.data.email) {
+        throw new Error("No account found for that username.");
+      }
+      await signInWithEmailAndPassword(auth, record.data.email, password);
+    } catch (err) {
+      console.error("Username sign-in failed", err);
+      if (err instanceof FirebaseError) {
+        if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
+          throw new Error("Incorrect username or password.");
+        }
+        throw new Error(err.message);
+      }
+      if (err instanceof Error) {
+        throw err;
+      }
+      throw new Error("Unable to sign in. Please try again.");
+    }
+  }, []);
+
   const value = React.useMemo(
     () => ({
       user,
@@ -164,12 +195,13 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       isSigningIn,
       error,
       signInWithGoogle,
+      signInWithUsername,
       signOut,
       onboardingComplete,
       onboardingLoading,
       setOnboardingComplete,
     }),
-    [user, initializing, isSigningIn, error, signInWithGoogle, signOut, onboardingComplete, onboardingLoading]
+    [user, initializing, isSigningIn, error, signInWithGoogle, signInWithUsername, signOut, onboardingComplete, onboardingLoading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -184,9 +216,11 @@ function useAuth() {
 }
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, initializing, isSigningIn, signInWithGoogle, error, onboardingComplete, onboardingLoading } = useAuth();
+  const { user, initializing, onboardingComplete, onboardingLoading } = useAuth();
   const pathname = usePathname();
   const isOnboardingRoute = pathname?.startsWith("/onboarding");
+  const publicRoutes = ["/welcome", "/login", "/signup"];
+  const isPublicRoute = pathname ? publicRoutes.some((route) => pathname === route || pathname.startsWith(route)) : false;
 
   if (initializing) {
     return (
@@ -197,13 +231,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
-    return (
-      <AuthLanding
-        loading={isSigningIn}
-        onSignIn={signInWithGoogle}
-        error={error}
-      />
-    );
+    if (!isPublicRoute) {
+      return <Redirect href="/welcome" />;
+    }
+    return <>{children}</>;
   }
 
   if (onboardingLoading) {
@@ -218,125 +249,19 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return <Redirect href="/onboarding" />;
   }
 
-  if (onboardingComplete && isOnboardingRoute) {
+  if (onboardingComplete && (isOnboardingRoute || isPublicRoute)) {
     return <Redirect href="/(tabs)/map" />;
   }
 
   return <>{children}</>;
 }
 
-function AuthLanding({
-  loading,
-  onSignIn,
-  error,
-}: {
-  loading: boolean;
-  onSignIn: () => void | Promise<void>;
-  error: string | null;
-}) {
-  const handleCreateAccount = React.useCallback(() => {
-    onSignIn();
-  }, [onSignIn]);
-
-  return (
-    <SafeAreaView style={styles.authRoot}>
-      <View style={styles.authCard}>
-        <Text style={styles.brandScript}>Recomi</Text>
-        <Text style={styles.brandTagline}>Discover. Save. Share.</Text>
-
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        <Pressable
-          onPress={onSignIn}
-          style={styles.primaryButton}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#ffffff" />
-          ) : (
-            <>
-              <FontAwesome name="envelope" size={18} color="#ffffff" />
-              <Text style={styles.primaryLabel}>Log in</Text>
-            </>
-          )}
-        </Pressable>
-
-        <Pressable
-          onPress={handleCreateAccount}
-          style={styles.secondaryButton}
-          disabled={loading}
-        >
-          <FontAwesome name="star" size={16} color="#0f172a" />
-          <Text style={styles.secondaryLabel}>Create account</Text>
-        </Pressable>
-      </View>
-    </SafeAreaView>
-  );
-}
-
 const styles = StyleSheet.create({
-  authRoot: {
+  container: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#f8fafc",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-  },
-  authCard: {
-    width: "100%",
-    maxWidth: 360,
-    alignItems: "center",
-    gap: 18,
-  },
-  brandScript: {
-    fontSize: 48,
-    color: "#0f172a",
-    fontFamily: Platform.select({ ios: "Snell Roundhand", default: "SpaceMono" }),
-    fontStyle: Platform.OS === "ios" ? "normal" : "italic",
-  },
-  brandTagline: {
-    fontSize: 16,
-    color: "#475569",
-    textTransform: "uppercase",
-    letterSpacing: 2,
-  },
-  errorText: {
-    fontSize: 14,
-    color: "#fca5a5",
-    textAlign: "center",
-    marginBottom: 12,
-  },
-  primaryButton: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingVertical: 16,
-    borderRadius: 999,
-    backgroundColor: "#0f172a",
-  },
-  primaryLabel: {
-    color: "#ffffff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  secondaryButton: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingVertical: 16,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: "#0f172a",
-    backgroundColor: "#f1f5f9",
-  },
-  secondaryLabel: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#0f172a",
   },
 });
 
