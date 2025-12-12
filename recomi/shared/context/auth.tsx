@@ -1,5 +1,6 @@
 import React from "react";
-import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, Text, View, Platform } from "react-native";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 import * as Google from "expo-auth-session/providers/google";
 import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
@@ -233,33 +234,40 @@ function AuthLanding({
   onSignIn: () => void | Promise<void>;
   error: string | null;
 }) {
+  const handleCreateAccount = React.useCallback(() => {
+    onSignIn();
+  }, [onSignIn]);
+
   return (
     <SafeAreaView style={styles.authRoot}>
-      <View style={styles.heroSection}>
-        <View style={styles.brandMark}>
-          <Text style={styles.brandInitial}>R</Text>
-        </View>
-        <Text style={styles.heroTitle}>Recomi</Text>
-      </View>
+      <View style={styles.authCard}>
+        <Text style={styles.brandScript}>Recomi</Text>
+        <Text style={styles.brandTagline}>Discover. Save. Share.</Text>
 
-      <View style={styles.authSheet}>
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <Pressable
           onPress={onSignIn}
-          style={styles.signInButton}
+          style={styles.primaryButton}
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color="#0f172a" />
+            <ActivityIndicator color="#ffffff" />
           ) : (
             <>
-              <View style={styles.googleChip}>
-                <Text style={styles.googleLetter}>G</Text>
-              </View>
-              <Text style={styles.signInLabel}>Sign in with Google</Text>
+              <FontAwesome name="envelope" size={18} color="#ffffff" />
+              <Text style={styles.primaryLabel}>Log in</Text>
             </>
           )}
+        </Pressable>
+
+        <Pressable
+          onPress={handleCreateAccount}
+          style={styles.secondaryButton}
+          disabled={loading}
+        >
+          <FontAwesome name="star" size={16} color="#0f172a" />
+          <Text style={styles.secondaryLabel}>Create account</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -270,81 +278,65 @@ const styles = StyleSheet.create({
   authRoot: {
     flex: 1,
     backgroundColor: "#f8fafc",
-  },
-  heroSection: {
-    flex: 4,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 32,
-    backgroundColor: "#f8fafc",
   },
-  brandMark: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: "#6366f1",
+  authCard: {
+    width: "100%",
+    maxWidth: 360,
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 18,
+    gap: 18,
   },
-  brandInitial: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#fff",
-  },
-  heroTitle: {
-    fontSize: 34,
-    fontWeight: "800",
+  brandScript: {
+    fontSize: 48,
     color: "#0f172a",
-    letterSpacing: 0.5,
+    fontFamily: Platform.select({ ios: "Snell Roundhand", default: "SpaceMono" }),
+    fontStyle: Platform.OS === "ios" ? "normal" : "italic",
   },
-  authSheet: {
-    flex: 1.5,
-    backgroundColor: "#0f172a",
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingHorizontal: 24,
-    paddingVertical: 22,
-    justifyContent: "flex-end",
+  brandTagline: {
+    fontSize: 16,
+    color: "#475569",
+    textTransform: "uppercase",
+    letterSpacing: 2,
   },
   errorText: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#fca5a5",
     textAlign: "center",
     marginBottom: 12,
   },
-  signInButton: {
+  primaryButton: {
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
+    paddingVertical: 16,
     borderRadius: 999,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    backgroundColor: "#f8fafc",
-    width: "100%",
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
+    backgroundColor: "#0f172a",
   },
-  signInLabel: {
+  primaryLabel: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  secondaryButton: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 16,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: "#0f172a",
+    backgroundColor: "#f1f5f9",
+  },
+  secondaryLabel: {
     fontSize: 16,
     fontWeight: "600",
     color: "#0f172a",
-  },
-  googleChip: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  googleLetter: {
-    fontWeight: "700",
-    color: "#ea4335",
-    fontSize: 18,
   },
 });
 

@@ -6,11 +6,14 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/shared/context/auth";
 import { completeOnboarding, isUsernameAvailable } from "@/shared/api/users";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SAFE_AREA_PADDING } from "@/constants/layout";
 
 export default function OnboardingScreen() {
   const { user, setOnboardingComplete } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const safeTop = Math.max(insets.top, SAFE_AREA_PADDING.top);
+  const safeBottom = Math.max(insets.bottom, SAFE_AREA_PADDING.bottom);
 
   const [step, setStep] = React.useState<1 | 2>(1);
   const [displayName, setDisplayName] = React.useState(user?.displayName ?? "");
@@ -125,8 +128,8 @@ export default function OnboardingScreen() {
 
   return (
     <ScrollView
-      style={[styles.screen, { paddingTop: Math.max(insets.top, 16) }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 24, paddingHorizontal: 20, gap: 24 }}
+      style={[styles.screen, { paddingTop: safeTop }]}
+      contentContainerStyle={{ paddingBottom: safeBottom + 24, paddingHorizontal: 20, gap: 24 }}
     >
       <View>
         <Text style={styles.stepLabel}>Step {step} of 2</Text>

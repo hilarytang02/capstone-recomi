@@ -17,9 +17,10 @@ import {
   listUserProfiles,
   type ListUsersResult,
   type UserProfile,
-} from "../../shared/api/users";
-import type { SavedEntry } from "../../shared/context/savedLists";
-import { useAuth } from "../../shared/context/auth";
+} from "@/shared/api/users";
+import type { SavedEntry } from "@/shared/context/savedLists";
+import { useAuth } from "@/shared/context/auth";
+import { SAFE_AREA_PADDING } from "@/constants/layout";
 
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -38,6 +39,8 @@ export default function FindPeopleScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const searchInputRef = React.useRef<TextInput | null>(null);
+  const safeTop = Math.max(insets.top, SAFE_AREA_PADDING.top);
+  const safeBottom = Math.max(insets.bottom, SAFE_AREA_PADDING.bottom);
 
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<EnrichedUserProfile[]>([]);
@@ -182,7 +185,7 @@ export default function FindPeopleScreen() {
   }, [loading, error, fetchUsers]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top || 12 }]}>
+    <View style={[styles.container, { paddingTop: safeTop, paddingBottom: safeBottom }]}>
       <View style={styles.searchWrapper}>
         <View style={styles.searchInputContainer}>
           <TextInput
@@ -205,7 +208,7 @@ export default function FindPeopleScreen() {
         data={results}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: safeBottom + 8 }]}
         keyboardShouldPersistTaps="handled"
         onScrollBeginDrag={dismissKeyboard}
         onEndReached={handleEndReached}
