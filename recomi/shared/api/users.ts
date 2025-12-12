@@ -182,35 +182,33 @@ export async function upsertUserProfileFromAuth(
 ): Promise<void> {
   const ref = doc(db, USERS_COLLECTION, user.uid)
 
-  await runTransaction(db, async (tx) => {
-    const snapshot = await tx.get(ref)
-    const exists = snapshot.exists()
-    const data = (snapshot.data() ?? {}) as UserDocument
+  const snapshot = await getDoc(ref)
+  const exists = snapshot.exists()
+  const data = (snapshot.data() ?? {}) as UserDocument
 
-    const preferredUsername = overrides.username ?? data.username ?? null
-    const baseUsername = preferredUsername?.trim() || buildFallbackUsername(user)
-    const normalizedUsername = sanitizeUsername(baseUsername) || buildFallbackUsername(user)
+  const preferredUsername = overrides.username ?? data.username ?? null
+  const baseUsername = preferredUsername?.trim() || buildFallbackUsername(user)
+  const normalizedUsername = sanitizeUsername(baseUsername) || buildFallbackUsername(user)
 
-    const payload: Record<string, unknown> = {
-      displayName: overrides.displayName ?? data.displayName ?? user.displayName ?? null,
-      photoURL: overrides.photoURL ?? data.photoURL ?? user.photoURL ?? null,
-      email: overrides.email ?? data.email ?? user.email ?? null,
-      username: normalizedUsername,
-      usernameLowercase: normalizedUsername,
-      bio: overrides.bio ?? data.bio ?? null,
-      homeCity: overrides.homeCity ?? data.homeCity ?? null,
-      followersCount: data.followersCount ?? 0,
-      followingCount: data.followingCount ?? 0,
-      hasCompletedOnboarding: exists ? (data.hasCompletedOnboarding ?? true) : false,
-      updatedAt: serverTimestamp(),
-    }
+  const payload: Record<string, unknown> = {
+    displayName: overrides.displayName ?? data.displayName ?? user.displayName ?? null,
+    photoURL: overrides.photoURL ?? data.photoURL ?? user.photoURL ?? null,
+    email: overrides.email ?? data.email ?? user.email ?? null,
+    username: normalizedUsername,
+    usernameLowercase: normalizedUsername,
+    bio: overrides.bio ?? data.bio ?? null,
+    homeCity: overrides.homeCity ?? data.homeCity ?? null,
+    followersCount: data.followersCount ?? 0,
+    followingCount: data.followingCount ?? 0,
+    hasCompletedOnboarding: exists ? (data.hasCompletedOnboarding ?? true) : false,
+    updatedAt: serverTimestamp(),
+  }
 
-    if (!exists) {
-      payload.createdAt = serverTimestamp()
-    }
+  if (!exists) {
+    payload.createdAt = serverTimestamp()
+  }
 
-    tx.set(ref, payload, { merge: true })
-  })
+  await setDoc(ref, payload, { merge: true })
 }
 
 export async function getUserProfile(uid: string, db: Firestore = firestore): Promise<UserProfile | null> {

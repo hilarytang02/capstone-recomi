@@ -1,7 +1,9 @@
 import { initializeApp, getApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { FirebaseError } from "firebase/app";
 import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 
 type EnvValue = string | undefined;
 
@@ -29,12 +31,21 @@ if (missingKeys.length) {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 let authInstance;
-try {
+if (Platform.OS === "web") {
   authInstance = getAuth(app);
-} catch (error) {
-  authInstance = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
+} else {
+  try {
+    authInstance = initializeAuth(app, {
+      persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+    });
+  } catch (err) {
+    const error = err as FirebaseError;
+    if (error.code === "auth/already-initialized") {
+      authInstance = getAuth(app);
+    } else {
+      throw err;
+    }
+  }
 }
 
 const db = getFirestore(app);
