@@ -8,6 +8,7 @@ import { completeOnboarding, isUsernameAvailable } from "@/shared/api/users";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SAFE_AREA_PADDING } from "@/constants/layout";
 
+// Guides new users through profile setup before unlocking the rest of the app.
 export default function OnboardingScreen() {
   const { user, setOnboardingComplete } = useAuth();
   const router = useRouter();
@@ -28,6 +29,7 @@ export default function OnboardingScreen() {
 
   const normalizedUsername = username.trim().toLowerCase();
 
+  // Reset validation state whenever the user edits the username.
   React.useEffect(() => {
     setUsernameError(null);
     setUsernameAvailable(false);
@@ -43,6 +45,7 @@ export default function OnboardingScreen() {
     return null;
   }, []);
 
+  // Debounced availability check that avoids double round-trips for the same value.
   const handleCheckUsername = React.useCallback(async () => {
     const error = validateUsername(username);
     if (error) {
@@ -97,6 +100,7 @@ export default function OnboardingScreen() {
     }
   };
 
+  // Final submission stitches together user input and persists it via Firestore.
   const handleComplete = async () => {
     if (!user) return;
     if (!displayName.trim()) {

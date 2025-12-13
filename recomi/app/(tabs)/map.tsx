@@ -89,6 +89,7 @@ const buildLabel = (place: any, fallback: string) => {
 const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
   Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5;
 
+// Combines search, map camera control, and list-saving UX into the home screen.
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -171,16 +172,19 @@ const reopenListModalRef = React.useRef(false);
     }
   }, [entries, pin, lists]);
 
+  // Seed geolocation permission status so we know whether to show prompts later.
   React.useEffect(() => {
     // Prime local state without prompting; fetchUserLocation will handle requests.
     Location.getForegroundPermissionsAsync().then(({ status }) => setLocPerm(status));
   }, []);
 
+  // Convenience wrapper around MapView.animateToRegion.
   const animateTo = React.useCallback(
     (r: Region, ms = 800) => mapRef.current?.animateToRegion(r, ms),
     []
   );
 
+  // Central place to keep region + sheet state in sync when focusing coordinates.
   const focusOn = React.useCallback(
     (
       latitude: number,
@@ -213,6 +217,7 @@ const reopenListModalRef = React.useRef(false);
     clearMapFocus();
   }, [clearMapFocus, focusOn, isFocused, mapFocusEntry]);
 
+  // Request foreground location and center the map; reused for "center me" button + initial load.
   const fetchUserLocation = React.useCallback(
     async (animate = true) => {
       try {
@@ -254,6 +259,7 @@ const reopenListModalRef = React.useRef(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Text search entry point that geocodes arbitrary strings into pins.
   const handleSubmit = async (raw?: string) => {
     const trimmed = (raw ?? query).trim();
     if (!trimmed) {
@@ -282,6 +288,7 @@ const reopenListModalRef = React.useRef(false);
     }
   };
 
+  // Supports long-press/double-tap interactions by dropping pins directly on the map.
   const handleMapPress = ({ latitude, longitude }: { latitude: number; longitude: number }) => {
     dismissKeyboard();
     const basePin: PinData = { lat: latitude, lng: longitude, label: "Dropped pin" };
@@ -305,6 +312,7 @@ const reopenListModalRef = React.useRef(false);
       });
   };
 
+  // Reset camera heading to north when the compass button is tapped.
   const handleCompassPress = React.useCallback(() => {
     if (!mapRef.current) return;
 
@@ -353,6 +361,7 @@ const reopenListModalRef = React.useRef(false);
     focusOn(pin.lat, pin.lng, { targetSheet: sheetState, animateMs: 250 });
   }, [sheetState, pin, focusOn]);
 
+  // Simple state machine that lets users drag the bottom sheet between predefined positions.
   const sheetPanResponder = React.useMemo(() => {
     const order: SheetState[] = ["hidden", "collapsed", "half", "expanded"];
 

@@ -35,6 +35,7 @@ export type LikedListRef = {
   favourite: SavedEntry[]
 }
 
+// Enumerated options for UI pickers so visibility rules stay in sync with Firestore.
 export const LIST_VISIBILITY_OPTIONS: Array<{
   value: SavedListDefinition["visibility"]
   label: string
@@ -59,6 +60,7 @@ export const LIST_VISIBILITY_OPTIONS: Array<{
 
 const EMPTY_LIST_DEFINITIONS: SavedListDefinition[] = []
 
+// Everything the saved-list experiences need in one provider value.
 type SavedListsContextValue = {
   lists: SavedListDefinition[]
   entries: SavedEntry[]
@@ -79,6 +81,7 @@ type SavedListsContextValue = {
 
 const SavedListsContext = React.createContext<SavedListsContextValue | undefined>(undefined)
 
+// Synchronizes the signed-in user's lists/entries/likes with Firestore and exposes mutators.
 export function SavedListsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
   const [lists, setLists] = React.useState<SavedListDefinition[]>(EMPTY_LIST_DEFINITIONS)
@@ -88,6 +91,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   const [loading, setLoading] = React.useState(true)
   const isHydratedRef = React.useRef(false)
 
+  // Re-subscribe any time the authenticated user changes.
   React.useEffect(() => {
     setLoading(true)
     isHydratedRef.current = false
@@ -162,6 +166,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     return unsubscribe
   }, [user])
 
+  // Push the canonical version of lists/entries/likes into Firestore.
   const persist = React.useCallback(
     async (
       nextLists: SavedListDefinition[] = lists,
@@ -189,6 +194,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [entries, likedLists, likedListsVisible, lists, user]
   )
 
+  // Merge a pin into the user's collection, deduping by lat/lng/list.
   const addEntry = React.useCallback(
     (entry: SavedEntry) => {
       setEntries((prev) => {
@@ -208,6 +214,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [lists, persist]
   )
 
+  // Remove a pin from a list by matching both listId and coordinates.
   const removeEntry = React.useCallback(
     (listId: string, pin: SavedEntry["pin"]) => {
       setEntries((prev) => {
@@ -226,6 +233,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [lists, persist]
   )
 
+  // Create new list metadata locally and persist it after basic validation.
   const addList = React.useCallback(
     (name: string, visibility: SavedListDefinition["visibility"] = "private") => {
       const trimmed = name.trim()
@@ -253,6 +261,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [entries, persist, user]
   )
 
+  // Strip a list plus its entries in one shot, then persist both arrays.
   const removeList = React.useCallback(
     (listId: string) => {
       setLists((prev) => {
@@ -270,14 +279,17 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
 
   const [mapFocusEntry, setMapFocusEntry] = React.useState<SavedEntry | null>(null)
 
+  // Let map consumers know which entry should be highlighted.
   const requestMapFocus = React.useCallback((entry: SavedEntry) => {
     setMapFocusEntry(entry)
   }, [])
 
+  // Consumers call this after handling the map focus request.
   const clearMapFocus = React.useCallback(() => {
     setMapFocusEntry(null)
   }, [])
 
+  // Cache other users' public lists the viewer has liked.
   const likeList = React.useCallback(
     (liked: LikedListRef) => {
       setLikedLists((prev) => {
@@ -306,6 +318,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [entries, lists, persist]
   )
 
+  // Toggle whether the viewer exposes their liked lists to others.
   const setLikedListsVisibilityValue = React.useCallback(
     (visible: boolean) => {
       setLikedListsVisible((prev) => {
@@ -317,6 +330,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [entries, likedLists, lists, persist]
   )
 
+  // Memoize context value so consumers only rerender on relevant changes.
   const value = React.useMemo(
     () => ({
       lists,

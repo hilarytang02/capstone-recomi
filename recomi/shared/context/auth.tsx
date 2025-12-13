@@ -78,6 +78,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   React.useEffect(() => {
+    // Keep Auth state, profile doc, and onboarding flag in sync with Firebase.
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setInitializing(false);
@@ -166,6 +167,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     await firebaseSignOut(auth);
   }, []);
 
+  // Support both username+password and email+password sign-ins by resolving usernames to emails.
   const signInWithUsername = React.useCallback(async (identifier: string, password: string) => {
     const trimmedIdentifier = identifier.trim();
     if (!trimmedIdentifier) {
@@ -202,6 +204,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Exposed so the signup screen can provision new email/password accounts.
   const createAccountWithEmail = React.useCallback(async (email: string, password: string) => {
     await createUserWithEmailAndPassword(auth, email.trim(), password);
   }, []);
@@ -242,6 +245,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const publicRoutes = ["/welcome", "/login", "/signup"];
   const isPublicRoute = pathname ? publicRoutes.some((route) => pathname === route || pathname.startsWith(route)) : false;
 
+  // Centralized routing decisions so we never render a screen outside the expected flow.
   const redirectHref = React.useMemo(() => {
     if (!user && !isPublicRoute) {
       return "/welcome";
@@ -256,6 +260,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   }, [user, isPublicRoute, onboardingComplete, onboardingLoading, isOnboardingRoute]);
 
   React.useEffect(() => {
+    // Router redirects must happen imperatively; defer until values settle.
     if (redirectHref) {
       router.replace(redirectHref);
     }

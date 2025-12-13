@@ -28,6 +28,7 @@ if (missingKeys.length) {
   );
 }
 
+// Reuse the existing Firebase app if it was already bootstrapped (e.g. during HMR).
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 let authInstance;
@@ -39,6 +40,7 @@ if (Platform.OS === "web") {
       persistence: getReactNativePersistence(ReactNativeAsyncStorage),
     });
   } catch (err) {
+    // initializeAuth throws if HMR already created an instance; fall back to the existing one.
     const error = err as FirebaseError;
     if (error.code === "auth/already-initialized") {
       authInstance = getAuth(app);

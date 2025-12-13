@@ -6,8 +6,10 @@ import { useRouter } from "expo-router";
 
 import { useAuth } from "@/shared/context/auth";
 
+// Basic client-side validation to catch obvious typos before hitting Firebase.
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Presents the email/password signup form and forwards submissions to Firebase Auth.
 export default function SignupScreen() {
   const { createAccountWithEmail, signInWithGoogle, isSigningIn } = useAuth();
   const router = useRouter();
@@ -21,6 +23,7 @@ export default function SignupScreen() {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
 
+  // Local validation prevents unnecessary network calls and gives better UX.
   const handleCreateAccount = async () => {
     if (submitting) return;
 

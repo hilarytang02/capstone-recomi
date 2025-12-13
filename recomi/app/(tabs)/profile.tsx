@@ -75,6 +75,7 @@ const computeRegion = (pins: SavedEntry[]): Region => {
   };
 };
 
+// Displays the current user's saved lists, liked lists, and account controls.
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -117,6 +118,8 @@ export default function ProfileScreen() {
     [setLikedListsVisibility],
   );
 
+  // Keep a live copy of the Firestore profile so edits elsewhere reflect immediately.
+  // Ensure the gallery always highlights a valid list after reordering/deletion.
   React.useEffect(() => {
     if (!user?.uid) {
       setSelfProfile(null);
@@ -134,6 +137,7 @@ export default function ProfileScreen() {
   const profileBio = selfProfile?.bio ?? null;
   const profilePhoto = selfProfile?.photoURL ?? user?.photoURL ?? null;
 
+  // Build gallery-friendly groups so wishlist/favourite pins stay paired with their list definition.
   const grouped = React.useMemo<GroupedList[]>(() => {
     return lists.map((definition) => {
       const related = entries.filter((entry) => entry.listId === definition.id);

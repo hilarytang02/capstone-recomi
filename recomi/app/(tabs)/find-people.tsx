@@ -34,6 +34,7 @@ function countSavedPlaces(user: UserProfile): number {
   return entriesField.length;
 }
 
+// Lightweight directory for discovering other users and jumping to their profiles.
 export default function FindPeopleScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -54,6 +55,7 @@ export default function FindPeopleScreen() {
   const fetchingRef = React.useRef(false);
   const hasMoreRef = React.useRef(true);
 
+  // Drives both initial search results and infinite scroll pagination.
   const fetchUsers = React.useCallback(
     async (mode: "reset" | "append" = "reset") => {
       if (mode === "append" && !hasMoreRef.current) return;
@@ -104,6 +106,7 @@ export default function FindPeopleScreen() {
     [query, user?.uid]
   );
 
+  // Debounce queries so we don't spam Firestore while the user types.
   React.useEffect(() => {
     const timer = setTimeout(() => {
       void fetchUsers("reset");

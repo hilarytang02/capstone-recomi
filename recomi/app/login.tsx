@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 
 import { useAuth } from "@/shared/context/auth";
 
+// Handles both email+password and username+password logins plus Google OAuth.
 export default function LoginScreen() {
   const { signInWithUsername, signInWithGoogle, isSigningIn, error } = useAuth();
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function LoginScreen() {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
 
+  // Attempt credential-based sign-in and surface friendly errors inline.
   const handleSubmit = async () => {
     if (submitting) return;
     setFormError(null);

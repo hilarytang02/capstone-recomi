@@ -67,6 +67,7 @@ const computeRegion = (pins: SavedEntry[]): Region => {
   };
 };
 
+// Public profile view with follow controls, likes, and shared map pins.
 export default function UserProfileScreen() {
   const { uid } = useLocalSearchParams<{ uid?: string | string[] }>();
   const resolvedUid = Array.isArray(uid) ? uid[0] : uid;
@@ -93,6 +94,7 @@ export default function UserProfileScreen() {
   const [feedbackMessage, setFeedbackMessage] = React.useState<string | null>(null);
   const feedbackTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
+  // Live subscriptions keep profile + list data fresh while viewing someone else.
   React.useEffect(() => {
     if (!resolvedUid) {
       setError("No user specified.");
@@ -143,6 +145,7 @@ export default function UserProfileScreen() {
 
   const likedListsVisible = profile?.likedListsVisible !== false;
 
+  // Helps render wishlist/favourite buckets without recomputing for each list.
   const entriesByList = React.useMemo(() => {
     return entries.reduce<Record<string, SavedEntry[]>>((acc, entry) => {
       acc[entry.listId] = acc[entry.listId] ? [...acc[entry.listId], entry] : [entry];
@@ -150,6 +153,7 @@ export default function UserProfileScreen() {
     }, {});
   }, [entries]);
 
+  // Hide lists the viewer shouldn't see based on profile visibility + follow status.
   const visibleLists = React.useMemo(() => {
     return lists.filter((list) =>
       canViewList(list.visibility, { isSelf, isFollower: Boolean(isFollowingUser) })

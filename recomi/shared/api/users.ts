@@ -104,12 +104,14 @@ export function canViewList(
 
 const DEFAULT_LIMIT = 25
 
+// Normalizes usernames so we can enforce uniqueness irrespective of case/punctuation.
 const sanitizeUsername = (value: string) =>
   value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._]/g, "")
 
+// Fetches the first user document matching a username; used for username-based login.
 export async function findUserByUsername(username: string, db: Firestore = firestore): Promise<{ id: string; data: UserDocument } | null> {
   const normalized = sanitizeUsername(username)
   if (!normalized) return null
@@ -130,6 +132,7 @@ export async function findUserByUsername(username: string, db: Firestore = fires
   }
 }
 
+// Returns true when no existing user has claimed the normalized username.
 export async function isUsernameAvailable(username: string, db: Firestore = firestore): Promise<boolean> {
   const normalized = sanitizeUsername(username)
   if (!normalized) return false
@@ -182,6 +185,7 @@ export async function upsertUserProfileFromAuth(
 ): Promise<void> {
   const ref = doc(db, USERS_COLLECTION, user.uid)
 
+  // We avoid transactions here so first-time logins can create the document without extra permissions.
   const snapshot = await getDoc(ref)
   const exists = snapshot.exists()
   const data = (snapshot.data() ?? {}) as UserDocument
