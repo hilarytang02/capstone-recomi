@@ -14,7 +14,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
 } from "firebase/auth";
-import { useRouter, usePathname } from "expo-router";
+import { useRouter, usePathname, useRootNavigationState } from "expo-router";
 
 import { auth } from "../firebase/app";
 import { findUserByUsername, upsertUserProfileFromAuth } from "../api/users";
@@ -240,6 +240,7 @@ function useAuth() {
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, initializing, onboardingComplete, onboardingLoading } = useAuth();
   const pathname = usePathname();
+  const rootNavigationState = useRootNavigationState();
   const router = useRouter();
   const isOnboardingRoute = pathname?.startsWith("/onboarding");
   const publicRoutes = ["/welcome", "/login", "/signup"];
@@ -247,6 +248,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   // Centralized routing decisions so we never render a screen outside the expected flow.
   const redirectHref = React.useMemo(() => {
+    if (initializing || onboardingLoading) {
+      return null;
+    }
     if (!user && !isPublicRoute) {
       return "/welcome";
     }
@@ -257,16 +261,40 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       return "/(tabs)/map";
     }
     return null;
-  }, [user, isPublicRoute, onboardingComplete, onboardingLoading, isOnboardingRoute]);
+  }, [user, isPublicRoute, onboardingComplete, onboardingLoading, isOnboardingRoute, initializing, pathname]);
+
+  React.useEffect(() => {
+    console.log("AuthGate state", {
+      initializing,
+      onboardingLoading,
+      redirectHref,
+      pathname,
+      user: user?.uid ?? null,
+      onboardingComplete,
+    });
+  }, [initializing, onboardingLoading, redirectHref, pathname, user, onboardingComplete]);
+
+  const hasTabsRoute = React.useMemo(() => {
+    if (!rootNavigationState?.routes) return false;
+    return rootNavigationState.routes.some((route) => route.name === "(tabs)");
+  }, [rootNavigationState]);
 
   React.useEffect(() => {
     // Router redirects must happen imperatively; defer until values settle.
-    if (redirectHref) {
+    if (!rootNavigationState?.key) {
+      return;
+    }
+    if (redirectHref?.startsWith("/(tabs)") && !hasTabsRoute) {
+      return;
+    }
+    if (redirectHref && redirectHref !== pathname) {
       router.replace(redirectHref);
     }
-  }, [redirectHref, router]);
+  }, [redirectHref, router, pathname, rootNavigationState, hasTabsRoute]);
 
-  if (initializing || onboardingLoading || redirectHref) {
+  const isNavigating = Boolean(redirectHref && redirectHref !== pathname);
+
+  if (initializing || onboardingLoading || !rootNavigationState?.key) {
     return (
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#0f172a" />
@@ -274,7 +302,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {isNavigating ? (
+        <View style={styles.overlay}>
+          <ActivityIndicator size="large" color="#0f172a" />
+        </View>
+      ) : null}
+    </>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -283,6 +320,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#f8fafc",
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#f8fafcAA",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 

@@ -185,7 +185,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
             likedListsVisible: nextLikedListsVisible,
             updatedAt: serverTimestamp(),
           },
-          { merge: false }
+          { merge: true }
         )
       } catch (error) {
         console.error("Failed to persist saved lists", error)
