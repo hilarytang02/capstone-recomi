@@ -166,6 +166,13 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     return unsubscribe
   }, [user])
 
+  const persistQueueRef = React.useRef<Promise<void>>(Promise.resolve())
+  const currentUserIdRef = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    currentUserIdRef.current = user?.uid ?? null
+  }, [user?.uid])
+
   // Push the canonical version of lists/entries/likes into Firestore.
   const persist = React.useCallback(
     async (
@@ -175,21 +182,28 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       nextLikedListsVisible: boolean = likedListsVisible,
     ) => {
       if (!user || !isHydratedRef.current) return
-      try {
-        await setDoc(
-          doc(firestore, "users", user.uid),
-          {
-            lists: nextLists,
-            entries: nextEntries,
-            likedLists: nextLikedLists,
-            likedListsVisible: nextLikedListsVisible,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        )
-      } catch (error) {
-        console.error("Failed to persist saved lists", error)
+      const targetUid = user.uid
+      const payload = {
+        lists: nextLists,
+        entries: nextEntries,
+        likedLists: nextLikedLists,
+        likedListsVisible: nextLikedListsVisible,
+        savedPlacesCount: nextEntries.length,
+        updatedAt: serverTimestamp(),
       }
+      const run = async () => {
+        if (currentUserIdRef.current !== targetUid) {
+          return
+        }
+        try {
+          await setDoc(doc(firestore, "users", targetUid), payload, { merge: true })
+        } catch (error) {
+          console.error("Failed to persist saved lists", error)
+        }
+      }
+      persistQueueRef.current = persistQueueRef.current
+        .catch(() => {})
+        .then(run)
     },
     [entries, likedLists, likedListsVisible, lists, user]
   )

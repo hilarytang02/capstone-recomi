@@ -42,6 +42,7 @@ export type UserDocument = {
   homeCity?: string | null
   followersCount?: number
   followingCount?: number
+  savedPlacesCount?: number
   hasCompletedOnboarding?: boolean
   createdAt?: Date | null
   updatedAt?: Date | null
@@ -60,6 +61,7 @@ export type UserProfile = {
   homeCity: string | null
   followersCount: number
   followingCount: number
+  savedPlacesCount: number
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -162,6 +164,12 @@ const buildFallbackUsername = (user: User) => {
 
 const toUserProfile = (snapshot: QueryDocumentSnapshot<UserDocument>): UserProfile => {
   const data = snapshot.data()
+  const derivedSavedCount =
+    typeof data.savedPlacesCount === "number"
+      ? data.savedPlacesCount
+      : Array.isArray((data as any).entries)
+        ? ((data as any).entries as unknown[]).length
+        : 0
   return {
     id: snapshot.id,
     displayName: data.displayName ?? null,
@@ -173,6 +181,7 @@ const toUserProfile = (snapshot: QueryDocumentSnapshot<UserDocument>): UserProfi
     homeCity: data.homeCity ?? null,
     followersCount: data.followersCount ?? 0,
     followingCount: data.followingCount ?? 0,
+    savedPlacesCount: derivedSavedCount,
     createdAt: toDate(data.createdAt ?? null),
     updatedAt: toDate(data.updatedAt ?? null),
   }

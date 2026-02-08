@@ -29,6 +29,9 @@ type EnrichedUserProfile = UserProfile & {
 };
 
 function countSavedPlaces(user: UserProfile): number {
+  if (typeof user.savedPlacesCount === "number") {
+    return user.savedPlacesCount;
+  }
   const entriesField = (user as any).entries;
   if (!Array.isArray(entriesField)) return 0;
   return entriesField.length;

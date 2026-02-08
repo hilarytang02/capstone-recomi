@@ -17,7 +17,15 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, onSnapshot } from "firebase/firestore";
 
 import { firestore } from "@/shared/firebase/app";
-import { USERS_COLLECTION, canViewList, followUser, getFollowCounts, isFollowing, type UserDocument, unfollowUser } from "@/shared/api/users";
+import {
+  USERS_COLLECTION,
+  canViewList,
+  followUser,
+  getFollowCounts,
+  isFollowing,
+  type UserDocument,
+  unfollowUser,
+} from "@/shared/api/users";
 import MapView, { Marker, type Region } from "@/components/MapView";
 import { useSavedLists, type LikedListRef, type SavedEntry, type SavedListDefinition } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
@@ -84,8 +92,6 @@ export default function UserProfileScreen() {
   const [followError, setFollowError] = React.useState<string | null>(null);
   const [followersCount, setFollowersCount] = React.useState<number>(0);
   const [followingCount, setFollowingCount] = React.useState<number>(0);
-  const [countsLoading, setCountsLoading] = React.useState(true);
-  const [countsRefreshKey, setCountsRefreshKey] = React.useState(0);
   const [mapModalVisible, setMapModalVisible] = React.useState(false);
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
   const previewMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
@@ -102,27 +108,58 @@ export default function UserProfileScreen() {
       return;
     }
 
+    let active = true;
     const ref = doc(firestore, USERS_COLLECTION, resolvedUid);
     const unsubscribe = onSnapshot(
       ref,
       (snapshot) => {
+        if (!active) {
+          return;
+        }
         if (!snapshot.exists()) {
           setProfile(null);
           setError("User not found.");
+          setFollowersCount(0);
+          setFollowingCount(0);
         } else {
-          setProfile({ id: snapshot.id, ...(snapshot.data() as UserDocument) });
+          const data = snapshot.data() as UserDocument;
+          setProfile({ id: snapshot.id, ...data });
+          const hasFollowersCount = typeof data.followersCount === "number";
+          const hasFollowingCount = typeof data.followingCount === "number";
+          setFollowersCount(hasFollowersCount ? data.followersCount : 0);
+          setFollowingCount(hasFollowingCount ? data.followingCount : 0);
+          if (resolvedUid && (!hasFollowersCount || !hasFollowingCount)) {
+            void getFollowCounts(resolvedUid)
+              .then((counts) => {
+                if (!active) return;
+                setFollowersCount(counts.followers);
+                setFollowingCount(counts.following);
+              })
+              .catch((err) => {
+                if (!active) return;
+                console.error("Failed to load follow counts", err);
+              });
+          }
           setError(null);
         }
         setLoading(false);
       },
       (err) => {
+        if (!active) {
+          return;
+        }
         console.error("Failed to load user profile", err);
         setError("Unable to load this profile right now.");
+        setFollowersCount(0);
+        setFollowingCount(0);
         setLoading(false);
       }
     );
 
-    return unsubscribe;
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [resolvedUid]);
 
   const isSelf = user?.uid === resolvedUid;
@@ -350,40 +387,6 @@ export default function UserProfileScreen() {
   }, [selectedGroup]);
 
   React.useEffect(() => {
-    let active = true;
-    const loadCounts = async () => {
-      if (!resolvedUid) {
-        if (active) {
-          setFollowersCount(0);
-          setFollowingCount(0);
-          setCountsLoading(false);
-        }
-        return;
-      }
-      setCountsLoading(true);
-      try {
-        const counts = await getFollowCounts(resolvedUid);
-        if (active) {
-          setFollowersCount(counts.followers);
-          setFollowingCount(counts.following);
-        }
-      } catch (err) {
-        if (active) {
-          console.error("Failed to load follow counts", err);
-        }
-      } finally {
-        if (active) {
-          setCountsLoading(false);
-        }
-      }
-    };
-    void loadCounts();
-    return () => {
-      active = false;
-    };
-  }, [resolvedUid, countsRefreshKey]);
-
-  React.useEffect(() => {
     if (!canFollow || !user || !resolvedUid) {
       setIsFollowingUser(null);
       setFollowStatusLoading(false);
@@ -431,11 +434,12 @@ export default function UserProfileScreen() {
       if (currentlyFollowing) {
         await unfollowUser(user.uid, resolvedUid);
         setIsFollowingUser(false);
+        setFollowersCount((count) => Math.max(0, count - 1));
       } else {
         await followUser(user.uid, resolvedUid);
         setIsFollowingUser(true);
+        setFollowersCount((count) => count + 1);
       }
-      setCountsRefreshKey((key) => key + 1);
     } catch (err) {
       console.error("Failed to update follow status", err);
       setFollowError(err instanceof Error ? err.message : "Unable to update follow status.");
@@ -520,7 +524,6 @@ export default function UserProfileScreen() {
         <Stat label="Following" value={followingCount} />
         <Stat label="Lists" value={visibleLists.length} />
       </View>
-      {countsLoading ? <Text style={styles.countsHint}>Updating stats…</Text> : null}
 
       {canFollow ? (
         <View>
@@ -869,13 +872,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 13,
     color: "#64748b",
-  },
-  countsHint: {
-    marginTop: -12,
-    marginBottom: 8,
-    textAlign: "right",
-    fontSize: 12,
-    color: "#94a3b8",
   },
   bio: {
     fontSize: 16,
