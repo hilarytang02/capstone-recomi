@@ -106,6 +106,10 @@ export default function MapScreen() {
   const [listModalVisible, setListModalVisible] = React.useState(false);
   const { addEntry, entries, removeEntry, lists, addList, mapFocusEntry, clearMapFocus } = useSavedLists();
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
+  const [pinSaveTransition, setPinSaveTransition] = React.useState<{
+    from: "wishlist" | "favourite" | "none" | null;
+    to: "wishlist" | "favourite" | "none" | null;
+  } | null>(null);
   const [heading, setHeading] = React.useState(0);
   const [cameraInfo, setCameraInfo] = React.useState<Camera | null>(null);
   const [bulkMovePrompt, setBulkMovePrompt] = React.useState<{
@@ -172,6 +176,10 @@ const reopenListModalRef = React.useRef(false);
       setPinSaveStatus(null);
     }
   }, [entries, pin, lists]);
+
+  React.useEffect(() => {
+    setPinSaveTransition(null);
+  }, [pin?.lat, pin?.lng]);
 
   // Seed geolocation permission status so we know whether to show prompts later.
   React.useEffect(() => {
@@ -459,6 +467,13 @@ const reopenListModalRef = React.useRef(false);
     }
 
     const nextStates: Record<string, ListBucket> = { ...pendingListStates };
+    const previousStatus = pinSaveStatus ?? "none";
+    const nextStatus = Object.values(nextStates).includes("favourite")
+      ? "favourite"
+      : Object.values(nextStates).includes("wishlist")
+        ? "wishlist"
+        : null;
+    setPinSaveTransition({ from: previousStatus, to: nextStatus ?? "none" });
     let timestamp = Date.now();
     lists.forEach((list, index) => {
       const initialBucket = initialListStates[list.id] ?? "none";
@@ -481,9 +496,10 @@ const reopenListModalRef = React.useRef(false);
 
     setInitialListStates(nextStates);
     setPendingListStates(nextStates);
+    setPinSaveStatus(nextStatus);
     setListModalVisible(false);
     setBulkMovePrompt(null);
-  }, [addEntry, initialListStates, lists, pendingListStates, pin, removeEntry]);
+  }, [addEntry, initialListStates, lists, pendingListStates, pin, pinSaveStatus, removeEntry]);
 
   const handleSingleTap = React.useCallback((listId: string) => {
     setPendingListStates((prev) => {
@@ -691,12 +707,9 @@ const reopenListModalRef = React.useRef(false);
               isSheetCollapsed && styles.sheetHeaderCollapsed,
             ]}
           >
-            <View style={styles.sheetTitleBlock}>
-              <Text style={styles.sheetTitle} numberOfLines={1}>
-                {pin.label}
-              </Text>
-              {!isSheetCollapsed && <PlaceSocialProof pin={pin} />}
-            </View>
+            <Text style={styles.sheetTitle} numberOfLines={2}>
+              {pin.label}
+            </Text>
             {isSheetCollapsed ? (
               <Pressable
                 onPress={() => {
@@ -729,22 +742,30 @@ const reopenListModalRef = React.useRef(false);
 
           {!isSheetCollapsed && (
             <View style={styles.sheetActions}>
+              <View style={styles.socialProofBlock}>
+                <PlaceSocialProof
+                  pin={pin}
+                  viewerBucket={pinSaveStatus}
+                  transition={pinSaveTransition}
+                  onTransitionSettled={() => setPinSaveTransition(null)}
+                />
+              </View>
               <Pressable
                 onPress={() => {
                   setListModalVisible(true);
                 }}
-                style={styles.heartButton}
+                style={[styles.heartButton, styles.heartButtonCompact]}
                 accessibilityRole="button"
                 accessibilityLabel="Save to list"
               >
-                <View style={styles.heartIconWrapper}>
+                <View style={[styles.heartIconWrapper, styles.heartIconWrapperCompact]}>
                   <FontAwesome
                     name={pinSaveStatus ? "heart" : "heart-o"}
-                    size={20}
+                    size={18}
                     color={pinSaveStatus ? "#ef4444" : "#0f172a"}
                   />
                   {pinSaveStatus === "favourite" && (
-                    <Text style={styles.heartSparkle}>✨</Text>
+                    <Text style={[styles.heartSparkle, styles.heartSparkleCompact]}>✨</Text>
                   )}
                 </View>
               </Pressable>
@@ -1137,14 +1158,10 @@ const styles = StyleSheet.create({
   },
   sheetHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
     marginBottom: 16,
     gap: 12,
-  },
-  sheetTitleBlock: {
-    flex: 1,
-    gap: 6,
   },
   sheetHeaderCollapsed: {
     marginBottom: 12,
@@ -1168,9 +1185,14 @@ const styles = StyleSheet.create({
   },
   sheetActions: {
     flexDirection: "row",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 20,
     gap: 12,
+  },
+  socialProofBlock: {
+    flex: 1,
+    paddingRight: 8,
   },
   heartButton: {
     width: 44,
@@ -1186,6 +1208,11 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
   },
+  heartButtonCompact: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
   heartIconWrapper: {
     position: "relative",
     alignItems: "center",
@@ -1193,6 +1220,9 @@ const styles = StyleSheet.create({
   },
   heartIconWrapperSmall: {
     transform: [{ scale: 0.9 }],
+  },
+  heartIconWrapperCompact: {
+    transform: [{ scale: 0.95 }],
   },
   heartSparkle: {
     position: "absolute",
@@ -1204,6 +1234,11 @@ const styles = StyleSheet.create({
     top: -8,
     right: -6,
     fontSize: 12,
+  },
+  heartSparkleCompact: {
+    top: -9,
+    right: -7,
+    fontSize: 13,
   },
   sheetBody: {
     gap: 12,

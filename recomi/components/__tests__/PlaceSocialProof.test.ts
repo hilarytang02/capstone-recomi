@@ -1,4 +1,4 @@
-import { buildLineText, getSocialProofLines } from "../../shared/utils/socialProof"
+import { buildLineText, buildLineTextWithSelf, getSocialProofLines } from "../../shared/utils/socialProof"
 
 describe("PlaceSocialProof helpers", () => {
   test("returns incentive when no saves exist", () => {
@@ -19,6 +19,7 @@ describe("PlaceSocialProof helpers", () => {
       favouriteCount: 0,
       wishlistFriendLabel: "@topfriend",
       favouriteFriendLabel: null,
+      selfBucket: null,
     })
 
     expect(result.incentive).toBeNull()
@@ -32,6 +33,7 @@ describe("PlaceSocialProof helpers", () => {
       favouriteCount: 0,
       wishlistFriendLabel: "@topfriend",
       favouriteFriendLabel: null,
+      selfBucket: null,
     })
 
     expect(result.lines[0]).toEqual({ kind: "wishlist", text: "@topfriend and 3 others" })
@@ -39,11 +41,11 @@ describe("PlaceSocialProof helpers", () => {
 
   test("favourite line falls back to count when no friend label", () => {
     expect(
-      buildLineText(1, null, "favourited")
-    ).toBe("1 person favourited")
+      buildLineText(1, null)
+    ).toBe("1 person")
     expect(
-      buildLineText(5, null, "favourited")
-    ).toBe("5 people favourited")
+      buildLineText(5, null)
+    ).toBe("5 people")
   })
 
   test("shows both wishlist and favourite lines when counts exist", () => {
@@ -52,6 +54,7 @@ describe("PlaceSocialProof helpers", () => {
       favouriteCount: 1,
       wishlistFriendLabel: "@alex",
       favouriteFriendLabel: "@sam",
+      selfBucket: null,
     })
 
     expect(result.lines).toEqual([
@@ -66,8 +69,27 @@ describe("PlaceSocialProof helpers", () => {
       favouriteCount: 3,
       wishlistFriendLabel: "@nope",
       favouriteFriendLabel: null,
+      selfBucket: null,
     })
 
-    expect(result.lines).toEqual([{ kind: "favourite", text: "3 people favourited" }])
+    expect(result.lines).toEqual([{ kind: "favourite", text: "3 people" }])
+  })
+
+  test("includes you when viewer saved in wishlist", () => {
+    const result = getSocialProofLines({
+      wishlistCount: 3,
+      favouriteCount: 0,
+      wishlistFriendLabel: "@june",
+      favouriteFriendLabel: null,
+      selfBucket: "wishlist",
+    })
+
+    expect(result.lines).toEqual([{ kind: "wishlist", text: "you, @june and 1 other" }])
+  })
+
+  test("formats self-only correctly", () => {
+    expect(
+      buildLineTextWithSelf({ count: 1, friendLabel: null, includeSelf: true })
+    ).toBe("you")
   })
 })

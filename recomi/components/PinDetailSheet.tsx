@@ -1,7 +1,8 @@
 import React from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
-import type { SavedEntry } from "../shared/context/savedLists";
+import { useSavedLists, type SavedEntry } from "../shared/context/savedLists";
+import { coordsMatch } from "../shared/utils/placeStats";
 import PlaceSocialProof from "./PlaceSocialProof";
 
 type PinDetailSheetProps = {
@@ -13,6 +14,15 @@ type PinDetailSheetProps = {
 export default function PinDetailSheet({ entry, onClose, bottomInset = 0 }: PinDetailSheetProps) {
   const [rendered, setRendered] = React.useState(entry);
   const translateY = React.useRef(new Animated.Value(320)).current;
+  const { entries } = useSavedLists();
+
+  const viewerBucket = React.useMemo(() => {
+    if (!rendered) return null;
+    const matches = entries.filter((item) => coordsMatch(item.pin, rendered.pin));
+    if (matches.some((item) => item.bucket === "favourite")) return "favourite";
+    if (matches.some((item) => item.bucket === "wishlist")) return "wishlist";
+    return null;
+  }, [entries, rendered]);
 
   React.useEffect(() => {
     if (entry) {
@@ -57,7 +67,7 @@ export default function PinDetailSheet({ entry, onClose, bottomInset = 0 }: PinD
             <Text style={styles.label} numberOfLines={1}>
               {rendered.pin.label}
             </Text>
-            <PlaceSocialProof pin={rendered.pin} />
+            <PlaceSocialProof pin={rendered.pin} viewerBucket={viewerBucket} />
           </View>
           <Pressable onPress={onClose} style={styles.closeButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Dismiss details">
             <Text style={styles.closeText}>Close</Text>

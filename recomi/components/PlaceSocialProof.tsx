@@ -180,17 +180,83 @@ const usePlaceEngagement = (pin: PlacePin | null): PlaceEngagement => {
   }
 }
 
-export default function PlaceSocialProof({ pin }: { pin: PlacePin | null }) {
+export default function PlaceSocialProof({
+  pin,
+  viewerBucket = null,
+  transition = null,
+  onTransitionSettled,
+}: {
+  pin: PlacePin | null
+  viewerBucket?: "wishlist" | "favourite" | null
+  transition?: { from: "wishlist" | "favourite" | "none" | null; to: "wishlist" | "favourite" | "none" | null } | null
+  onTransitionSettled?: () => void
+}) {
   const { wishlistCount, favouriteCount, wishlistFriend, favouriteFriend } = usePlaceEngagement(pin)
+  const transitionBaselineRef = React.useRef<{ wishlist: number; favourite: number } | null>(null)
+
+  React.useEffect(() => {
+    if (transition && !transitionBaselineRef.current) {
+      transitionBaselineRef.current = {
+        wishlist: wishlistCount,
+        favourite: favouriteCount,
+      }
+      return
+    }
+    if (!transition) {
+      transitionBaselineRef.current = null
+    }
+  }, [transition, wishlistCount, favouriteCount])
+
+  React.useEffect(() => {
+    if (!transition || !transitionBaselineRef.current || !onTransitionSettled) return
+    const baseline = transitionBaselineRef.current
+    const wishlistMoved = wishlistCount !== baseline.wishlist
+    const favouriteMoved = favouriteCount !== baseline.favourite
+    const movedAwayFromWishlist = transition.from === "wishlist" && wishlistCount < baseline.wishlist
+    const movedAwayFromFavourite = transition.from === "favourite" && favouriteCount < baseline.favourite
+    const movedIntoWishlist = transition.to === "wishlist" && wishlistCount > baseline.wishlist
+    const movedIntoFavourite = transition.to === "favourite" && favouriteCount > baseline.favourite
+
+    if (wishlistMoved || favouriteMoved || movedAwayFromWishlist || movedAwayFromFavourite || movedIntoWishlist || movedIntoFavourite) {
+      onTransitionSettled()
+    }
+  }, [favouriteCount, onTransitionSettled, transition, wishlistCount])
+  const wishlistDelta =
+    (transition?.to === "wishlist" ? 1 : 0) - (transition?.from === "wishlist" ? 1 : 0)
+  const favouriteDelta =
+    (transition?.to === "favourite" ? 1 : 0) - (transition?.from === "favourite" ? 1 : 0)
+  let displayWishlistCount = Math.max(0, wishlistCount + wishlistDelta)
+  let displayFavouriteCount = Math.max(0, favouriteCount + favouriteDelta)
+  if (transition?.from === "wishlist" && transition?.to !== "wishlist") {
+    displayWishlistCount = 0
+  }
+  if (transition?.from === "favourite" && transition?.to !== "favourite") {
+    displayFavouriteCount = 0
+  }
+  if (!transition && viewerBucket === "favourite" && wishlistCount <= 1) {
+    displayWishlistCount = 0
+  }
+  if (!transition && viewerBucket === "wishlist" && favouriteCount <= 1) {
+    displayFavouriteCount = 0
+  }
   const { lines, incentive } = React.useMemo(
     () =>
       getSocialProofLines({
-        wishlistCount,
-        favouriteCount,
+        wishlistCount: displayWishlistCount,
+        favouriteCount: displayFavouriteCount,
         wishlistFriendLabel: wishlistFriend?.label ?? null,
         favouriteFriendLabel: favouriteFriend?.label ?? null,
+        selfBucket: viewerBucket ?? null,
       }),
-    [favouriteCount, favouriteFriend?.label, wishlistCount, wishlistFriend?.label]
+    [
+      displayFavouriteCount,
+      displayWishlistCount,
+      favouriteFriend?.label,
+      transition?.from,
+      transition?.to,
+      viewerBucket,
+      wishlistFriend?.label,
+    ]
   )
 
   if (!pin) {
@@ -206,27 +272,33 @@ export default function PlaceSocialProof({ pin }: { pin: PlacePin | null }) {
   }
 
   return (
-    <View style={styles.wrapper}>
-      {lines.map((line) => (
-        <View key={line.kind} style={styles.line}>
-          <View style={styles.iconWrapper}>
-            <FontAwesome name="heart" size={12} color="#ef4444" />
-            {line.kind === "favourite" ? <Text style={styles.sparkle}>✨</Text> : null}
+    <View style={styles.inline}>
+      {lines.map((line, index) => (
+        <React.Fragment key={line.kind}>
+          {index > 0 ? <Text style={styles.separator}>|</Text> : null}
+          <View style={styles.inlineItem}>
+            <View style={styles.iconWrapper}>
+              <FontAwesome name="heart" size={12} color="#ef4444" />
+              {line.kind === "favourite" ? <Text style={styles.sparkle}>✨</Text> : null}
+            </View>
+            <Text style={styles.inlineText} numberOfLines={1}>
+              by {line.text}
+            </Text>
           </View>
-          <Text style={styles.lineText} numberOfLines={1}>
-            {line.text}
-          </Text>
-        </View>
+        </React.Fragment>
       ))}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    gap: 4,
+  inline: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: 8,
   },
-  line: {
+  inlineItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -243,10 +315,15 @@ const styles = StyleSheet.create({
     top: -6,
     fontSize: 10,
   },
-  lineText: {
+  inlineText: {
     fontSize: 13,
     color: "#475569",
     fontWeight: "500",
+  },
+  separator: {
+    fontSize: 12,
+    color: "#94a3b8",
+    fontWeight: "600",
   },
   incentive: {
     fontSize: 13,
