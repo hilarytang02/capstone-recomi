@@ -1,8 +1,16 @@
 import React from "react"
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore"
+import { doc, onSnapshot, runTransaction, serverTimestamp, setDoc } from "firebase/firestore"
 
 import { firestore } from "../firebase/app"
 import { useAuth } from "./auth"
+import {
+  PLACE_STATS_COLLECTION,
+  PLACE_USER_SAVES_SUBCOLLECTION,
+  coordsMatch,
+  normalizePin,
+  placeIdFromPin,
+  type PlaceBucket,
+} from "../utils/placeStats"
 
 export type SavedListDefinition = {
   id: string
@@ -169,6 +177,76 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   const persistQueueRef = React.useRef<Promise<void>>(Promise.resolve())
   const currentUserIdRef = React.useRef<string | null>(null)
 
+  const getPinAggregateStatus = React.useCallback((source: SavedEntry[], pin: SavedEntry["pin"]): PlaceBucket => {
+    const matches = source.filter((entry) => coordsMatch(entry.pin, pin))
+    if (matches.some((entry) => entry.bucket === "favourite")) {
+      return "favourite"
+    }
+    if (matches.some((entry) => entry.bucket === "wishlist")) {
+      return "wishlist"
+    }
+    return "none"
+  }, [])
+
+  const updatePlaceStats = React.useCallback(
+    async (pin: SavedEntry["pin"], previousStatus: PlaceBucket, nextStatus: PlaceBucket) => {
+      if (!user || previousStatus === nextStatus) return
+      const placeId = placeIdFromPin(pin)
+      const placeRef = doc(firestore, PLACE_STATS_COLLECTION, placeId)
+      const userSaveRef = doc(firestore, PLACE_STATS_COLLECTION, placeId, PLACE_USER_SAVES_SUBCOLLECTION, user.uid)
+      const normalizedPin = normalizePin(pin)
+
+      await runTransaction(firestore, async (tx) => {
+        const snapshot = await tx.get(placeRef)
+        const data = snapshot.exists() ? snapshot.data() : {}
+        const currentWishlist = typeof data?.wishlistCount === "number" ? data.wishlistCount : 0
+        const currentFavourite = typeof data?.favouriteCount === "number" ? data.favouriteCount : 0
+        let wishlistCount = currentWishlist
+        let favouriteCount = currentFavourite
+
+        if (previousStatus === "wishlist") {
+          wishlistCount = Math.max(0, wishlistCount - 1)
+        } else if (previousStatus === "favourite") {
+          favouriteCount = Math.max(0, favouriteCount - 1)
+        }
+
+        if (nextStatus === "wishlist") {
+          wishlistCount += 1
+        } else if (nextStatus === "favourite") {
+          favouriteCount += 1
+        }
+
+        tx.set(
+          placeRef,
+          {
+            wishlistCount,
+            favouriteCount,
+            lat: normalizedPin.lat,
+            lng: normalizedPin.lng,
+            label: normalizedPin.label ?? null,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        )
+
+        if (nextStatus === "none") {
+          tx.delete(userSaveRef)
+        } else {
+          tx.set(
+            userSaveRef,
+            {
+              userId: user.uid,
+              bucket: nextStatus,
+              savedAt: serverTimestamp(),
+            },
+            { merge: true }
+          )
+        }
+      })
+    },
+    [user]
+  )
+
   React.useEffect(() => {
     currentUserIdRef.current = user?.uid ?? null
   }, [user?.uid])
@@ -212,6 +290,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   const addEntry = React.useCallback(
     (entry: SavedEntry) => {
       setEntries((prev) => {
+        const previousStatus = getPinAggregateStatus(prev, entry.pin)
         const next = prev.filter(
           (existing) =>
             !(
@@ -222,29 +301,31 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
         )
         const updated = [...next, entry]
         void persist(lists, updated)
+        void updatePlaceStats(entry.pin, previousStatus, getPinAggregateStatus(updated, entry.pin))
         return updated
       })
     },
-    [lists, persist]
+    [getPinAggregateStatus, lists, persist, updatePlaceStats]
   )
 
   // Remove a pin from a list by matching both listId and coordinates.
   const removeEntry = React.useCallback(
     (listId: string, pin: SavedEntry["pin"]) => {
       setEntries((prev) => {
+        const previousStatus = getPinAggregateStatus(prev, pin)
         const updated = prev.filter(
           (existing) =>
             !(
               existing.listId === listId &&
-              Math.abs(existing.pin.lat - pin.lat) < 1e-8 &&
-              Math.abs(existing.pin.lng - pin.lng) < 1e-8
+              coordsMatch(existing.pin, pin)
             )
         )
         void persist(lists, updated)
+        void updatePlaceStats(pin, previousStatus, getPinAggregateStatus(updated, pin))
         return updated
       })
     },
-    [lists, persist]
+    [getPinAggregateStatus, lists, persist, updatePlaceStats]
   )
 
   // Create new list metadata locally and persist it after basic validation.

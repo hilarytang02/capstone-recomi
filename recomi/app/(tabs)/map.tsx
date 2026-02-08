@@ -25,6 +25,7 @@ import {
   type SavedListDefinition,
   LIST_VISIBILITY_OPTIONS,
 } from "../../shared/context/savedLists";
+import PlaceSocialProof from "../../components/PlaceSocialProof";
 
 const WORLD: Region = {
   latitude: 20,
@@ -690,9 +691,12 @@ const reopenListModalRef = React.useRef(false);
               isSheetCollapsed && styles.sheetHeaderCollapsed,
             ]}
           >
-            <Text style={styles.sheetTitle} numberOfLines={1}>
-              {pin.label}
-            </Text>
+            <View style={styles.sheetTitleBlock}>
+              <Text style={styles.sheetTitle} numberOfLines={1}>
+                {pin.label}
+              </Text>
+              {!isSheetCollapsed && <PlaceSocialProof pin={pin} />}
+            </View>
             {isSheetCollapsed ? (
               <Pressable
                 onPress={() => {
@@ -1137,6 +1141,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 16,
     gap: 12,
+  },
+  sheetTitleBlock: {
+    flex: 1,
+    gap: 6,
   },
   sheetHeaderCollapsed: {
     marginBottom: 12,

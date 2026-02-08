@@ -2,6 +2,7 @@ import React from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { SavedEntry } from "../shared/context/savedLists";
+import PlaceSocialProof from "./PlaceSocialProof";
 
 type PinDetailSheetProps = {
   entry: SavedEntry | null;
@@ -52,10 +53,11 @@ export default function PinDetailSheet({ entry, onClose, bottomInset = 0 }: PinD
       >
         <View style={styles.handle} />
         <View style={styles.content}>
-          <View style={{ flex: 1 }}>
+          <View style={styles.titleBlock}>
             <Text style={styles.label} numberOfLines={1}>
               {rendered.pin.label}
             </Text>
+            <PlaceSocialProof pin={rendered.pin} />
           </View>
           <Pressable onPress={onClose} style={styles.closeButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Dismiss details">
             <Text style={styles.closeText}>Close</Text>
@@ -101,6 +103,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  titleBlock: {
+    flex: 1,
+    gap: 6,
   },
   label: {
     fontSize: 16,
