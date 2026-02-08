@@ -70,7 +70,7 @@ recomi/
 │   ├── api/                 # Firestore + Auth helpers (users, follows, onboarding)
 │   ├── context/             # React contexts (auth, saved lists)
 │   └── firebase/            # Firebase initialization (Auth + Firestore)
-├── functions/               # Firebase Cloud Functions (cleanup triggers, etc.)
+├── recomi/functions/        # Firebase Cloud Functions (cleanup triggers, etc.)
 ├── assets/                  # Fonts/images bundled with the app
 ├── types/                   # Global TypeScript declarations (e.g., firebase-auth-react-native.d.ts)
 ├── firestore.rules          # Firestore security rules (deploy via the Firebase CLI)
@@ -89,7 +89,7 @@ Refer to `package.json` for the full list.
 
 ## Firebase deployment (optional)
 
-If you make changes to `firestore.rules` or `functions/`, use the Firebase CLI:
+If you make changes to `firestore.rules` or `recomi/functions/`, use the Firebase CLI:
 
 ```bash
 npx firebase login
