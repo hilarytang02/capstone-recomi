@@ -52,11 +52,7 @@
       "expo-router",
       [
         "expo-build-properties",
-        {
-          "ios": {
-            "useFrameworks": "static"
-          }
-        }
+        {}
       ],
       "expo-web-browser"
     ],

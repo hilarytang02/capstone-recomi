@@ -11,6 +11,7 @@ declare namespace NodeJS {
     EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?: "956224194887-0ugiqjgltd5scj1hd96qgo605c0ir3qv.apps.googleusercontent.com";
     EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?: string;
     EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?: "956224194887-dd499gdv1ae5r5gpu1i8bhcd32k3slro.apps.googleusercontent.com";
+    EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?: string;
   }
 }
 
