@@ -31,7 +31,7 @@ type AuthContextValue = {
   error: string | null;
   signInWithGoogle: () => Promise<void>;
   signInWithUsername: (username: string, password: string) => Promise<void>;
-  createAccountWithEmail: (email: string, password: string) => Promise<void>;
+  createAccountWithEmail: (email: string, password: string, username?: string) => Promise<void>;
   signOut: () => Promise<void>;
   onboardingComplete: boolean;
   onboardingLoading: boolean;
@@ -189,11 +189,21 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
         emailToUse = record.data.email;
       }
       await signInWithEmailAndPassword(auth, emailToUse, password);
+      if (!auth.currentUser) {
+        throw new Error("Sign-in did not complete. Please try again.");
+      }
     } catch (err) {
       console.error("Username sign-in failed", err);
+      const errCode = typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : null;
+      if (errCode === "auth/invalid-credential" || errCode === "auth/wrong-password") {
+        throw new Error("Incorrect username/email or password. If you signed up with Google, use Google sign-in.");
+      }
+      if (errCode === "auth/user-not-found") {
+        throw new Error("No account found for that email.");
+      }
       if (err instanceof FirebaseError) {
         if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
-          throw new Error("Incorrect username or password.");
+          throw new Error("Incorrect username/email or password. If you signed up with Google, use Google sign-in.");
         }
         throw new Error(err.message);
       }
@@ -205,8 +215,12 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Exposed so the signup screen can provision new email/password accounts.
-  const createAccountWithEmail = React.useCallback(async (email: string, password: string) => {
-    await createUserWithEmailAndPassword(auth, email.trim(), password);
+  const createAccountWithEmail = React.useCallback(async (email: string, password: string, username?: string) => {
+    const normalizedUsername = username ? username.trim().toLowerCase() : null;
+    const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+    if (result.user && normalizedUsername) {
+      await upsertUserProfileFromAuth(result.user, { username: normalizedUsername });
+    }
   }, []);
 
   const value = React.useMemo(
@@ -274,39 +288,32 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     });
   }, [initializing, onboardingLoading, redirectHref, pathname, user, onboardingComplete]);
 
-  const hasTabsRoute = React.useMemo(() => {
-    if (!rootNavigationState?.routes) return false;
-    return rootNavigationState.routes.some((route) => route.name === "(tabs)");
-  }, [rootNavigationState]);
+  const canNavigateToRedirect = React.useMemo(() => {
+    if (!redirectHref || redirectHref === pathname) {
+      return false;
+    }
+    return true;
+  }, [redirectHref, pathname]);
 
   React.useEffect(() => {
     // Router redirects must happen imperatively; defer until values settle.
     if (!rootNavigationState?.key) {
       return;
     }
-    if (redirectHref?.startsWith("/(tabs)") && !hasTabsRoute) {
-      return;
+    if (canNavigateToRedirect) {
+      router.replace(redirectHref as string);
     }
-    if (redirectHref && redirectHref !== pathname) {
-      router.replace(redirectHref);
-    }
-  }, [redirectHref, router, pathname, rootNavigationState, hasTabsRoute]);
+  }, [canNavigateToRedirect, redirectHref, router, rootNavigationState]);
 
-  const isNavigating = Boolean(redirectHref && redirectHref !== pathname);
+  const isNavigating = canNavigateToRedirect;
 
-  if (initializing || onboardingLoading || !rootNavigationState?.key) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#0f172a" />
-      </View>
-    );
-  }
+  const shouldBlock = initializing || onboardingLoading || !rootNavigationState?.key;
 
   return (
     <>
       {children}
-      {isNavigating ? (
-        <View style={styles.overlay}>
+      {shouldBlock || isNavigating ? (
+        <View style={[styles.overlay, shouldBlock ? styles.overlaySolid : null]}>
           <ActivityIndicator size="large" color="#0f172a" />
         </View>
       ) : null}
@@ -326,6 +333,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafcAA",
     alignItems: "center",
     justifyContent: "center",
+  },
+  overlaySolid: {
+    backgroundColor: "#f8fafc",
   },
 });
 

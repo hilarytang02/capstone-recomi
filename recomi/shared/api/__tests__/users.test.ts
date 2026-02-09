@@ -11,6 +11,13 @@ jest.mock("firebase/auth", () => ({
 }));
 
 jest.mock("@react-native-async-storage/async-storage", () => ({}));
+jest.mock("react-native", () => ({
+  Platform: {
+    OS: "ios",
+    select: (values: { ios?: unknown; android?: unknown; default?: unknown }) =>
+      values?.ios ?? values?.default,
+  },
+}));
 
 function createFirestoreMock() {
   const transaction = {
@@ -61,6 +68,7 @@ const mockLimit = firestoreMock.limit;
 const mockStartAfter = firestoreMock.startAfter;
 const mockRunTransaction = firestoreMock.runTransaction;
 const mockServerTimestamp = firestoreMock.serverTimestamp;
+const mockSetDoc = firestoreMock.setDoc;
 
 import type { Firestore } from "firebase/firestore";
 
@@ -69,8 +77,10 @@ import {
   followUser,
   getFollowCounts,
   getUserProfile,
+  isUsernameAvailable,
   isFollowing,
   listUserProfiles,
+  findUserByUsername,
   unfollowUser,
   upsertUserProfileFromAuth,
 } from "../users";
@@ -103,11 +113,11 @@ beforeEach(() => {
 
 describe("user profile helpers (mocked Firestore)", () => {
   it("creates a profile with a sanitized username when none exists", async () => {
-    mockTransaction.get.mockResolvedValueOnce(buildMockSnapshot({}, false));
+    mockGetDoc.mockResolvedValueOnce(buildMockSnapshot({}, false));
 
     await upsertUserProfileFromAuth(fakeUser as any, {}, fakeDb);
 
-    expect(mockTransaction.set).toHaveBeenCalledWith(
+    expect(mockSetDoc).toHaveBeenCalledWith(
       "users/user_1",
       expect.objectContaining({
         displayName: "Alice Example",
@@ -119,13 +129,13 @@ describe("user profile helpers (mocked Firestore)", () => {
   });
 
   it("preserves existing follower counts when updating a profile", async () => {
-    mockTransaction.get.mockResolvedValueOnce(
+    mockGetDoc.mockResolvedValueOnce(
       buildMockSnapshot({ username: "alice", followersCount: 5, followingCount: 3 })
     );
 
     await upsertUserProfileFromAuth(fakeUser as any, { bio: "Traveller" }, fakeDb);
 
-    expect(mockTransaction.set).toHaveBeenCalledWith(
+    expect(mockSetDoc).toHaveBeenCalledWith(
       "users/user_1",
       expect.objectContaining({
         bio: "Traveller",
@@ -225,6 +235,59 @@ describe("user profile helpers (mocked Firestore)", () => {
       id: "mock-id",
       displayName: "Solo User",
       username: "solo",
+    });
+  });
+
+  describe("username lookups", () => {
+    it("returns true when a username is unused", async () => {
+      mockGetDocs.mockResolvedValueOnce({ empty: true, docs: [] });
+
+      await expect(isUsernameAvailable("newuser", undefined, fakeDb)).resolves.toBe(true);
+    });
+
+    it("returns false when a username is taken by another user", async () => {
+      mockGetDocs.mockResolvedValueOnce({
+        empty: false,
+        docs: [
+          {
+            id: "user_2",
+            data: () => ({ username: "taken", email: "taken@example.com" }),
+          },
+        ],
+      });
+
+      await expect(isUsernameAvailable("taken", "user_1", fakeDb)).resolves.toBe(false);
+    });
+
+    it("returns true when the username belongs to the current user", async () => {
+      mockGetDocs.mockResolvedValueOnce({
+        empty: false,
+        docs: [
+          {
+            id: "user_1",
+            data: () => ({ username: "me", email: "me@example.com" }),
+          },
+        ],
+      });
+
+      await expect(isUsernameAvailable("me", "user_1", fakeDb)).resolves.toBe(true);
+    });
+
+    it("finds user by username for login flows", async () => {
+      mockGetDocs.mockResolvedValueOnce({
+        empty: false,
+        docs: [
+          {
+            id: "user_login",
+            data: () => ({ username: "loginuser", email: "login@example.com" }),
+          },
+        ],
+      });
+
+      await expect(findUserByUsername("loginuser", fakeDb)).resolves.toEqual({
+        id: "user_login",
+        data: { username: "loginuser", email: "login@example.com" },
+      });
     });
   });
 

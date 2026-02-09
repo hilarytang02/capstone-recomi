@@ -4,7 +4,9 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 
 import { useAuth } from "@/shared/context/auth";
-import { completeOnboarding, isUsernameAvailable } from "@/shared/api/users";
+import { completeOnboarding, isUsernameAvailable, type UserDocument, USERS_COLLECTION } from "@/shared/api/users";
+import { doc, getDoc } from "firebase/firestore";
+import { firestore } from "@/shared/firebase/app";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SAFE_AREA_PADDING } from "@/constants/layout";
 
@@ -29,12 +31,37 @@ export default function OnboardingScreen() {
 
   const normalizedUsername = username.trim().toLowerCase();
 
-  // Reset validation state whenever the user edits the username.
-  React.useEffect(() => {
+  const handleUsernameChange = React.useCallback((value: string) => {
+    setUsername(value);
     setUsernameError(null);
     setUsernameAvailable(false);
     setLastCheckedUsername(null);
-  }, [username]);
+  }, []);
+
+  React.useEffect(() => {
+    if (!user?.uid) return;
+    let active = true;
+    const loadExistingProfile = async () => {
+      try {
+        const snapshot = await getDoc(doc(firestore, USERS_COLLECTION, user.uid));
+        if (!active || !snapshot.exists()) return;
+        const data = snapshot.data() as UserDocument;
+        const existingUsername = typeof data.username === "string" ? data.username : "";
+        const normalized = existingUsername.trim().toLowerCase();
+        if (normalized) {
+          setUsername(existingUsername);
+          setUsernameAvailable(true);
+          setLastCheckedUsername(normalized);
+        }
+      } catch (err) {
+        console.error("Failed to load existing profile", err);
+      }
+    };
+    void loadExistingProfile();
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
 
   const validateUsername = React.useCallback((value: string) => {
     const normalized = value.trim().toLowerCase();
@@ -58,7 +85,7 @@ export default function OnboardingScreen() {
     }
     setCheckingUsername(true);
     try {
-      const available = await isUsernameAvailable(username);
+      const available = await isUsernameAvailable(username, user?.uid);
       if (!available) {
         setUsernameError("This username is taken.");
         setUsernameAvailable(false);
@@ -76,7 +103,7 @@ export default function OnboardingScreen() {
     } finally {
       setCheckingUsername(false);
     }
-  }, [username, validateUsername]);
+  }, [username, validateUsername, user?.uid]);
 
   const handleNext = async () => {
     setUsernameAvailable(false);
@@ -153,7 +180,7 @@ export default function OnboardingScreen() {
           <Text style={styles.label}>Username</Text>
           <TextInput
             value={username}
-            onChangeText={setUsername}
+            onChangeText={handleUsernameChange}
             autoCapitalize="none"
             autoCorrect={false}
             placeholder="lowercase, numbers, . or _"

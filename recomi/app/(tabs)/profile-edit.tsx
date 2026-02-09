@@ -124,7 +124,7 @@ export default function EditProfileScreen() {
     }
     setCheckingUsername(true);
     try {
-      const available = await isUsernameAvailable(normalized);
+      const available = await isUsernameAvailable(normalized, user?.uid);
       if (!available) {
         setUsernameError("This username is taken. Please choose another.");
         setUsernameAvailable(false);

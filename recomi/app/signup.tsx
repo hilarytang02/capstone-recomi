@@ -5,6 +5,7 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
 
 import { useAuth } from "@/shared/context/auth";
+import { isUsernameAvailable } from "@/shared/api/users";
 
 // Basic client-side validation to catch obvious typos before hitting Firebase.
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -19,13 +20,29 @@ export default function SignupScreen() {
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirm, setShowConfirm] = React.useState(false);
+  const [username, setUsername] = React.useState("");
 
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
 
+  const validateUsername = React.useCallback((value: string) => {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return "Username is required.";
+    if (!/^[a-z0-9._]+$/.test(normalized)) return "Only lowercase letters, numbers, . and _ allowed.";
+    if (normalized.length < 3) return "Username must be at least 3 characters.";
+    if (normalized.length > 24) return "Username is too long.";
+    return null;
+  }, []);
+
   // Local validation prevents unnecessary network calls and gives better UX.
   const handleCreateAccount = async () => {
     if (submitting) return;
+
+    const usernameError = validateUsername(username);
+    if (usernameError) {
+      setFormError(usernameError);
+      return;
+    }
 
     if (!emailRegex.test(email.trim())) {
       setFormError("Please enter a valid email address.");
@@ -45,8 +62,12 @@ export default function SignupScreen() {
     setFormError(null);
     setSubmitting(true);
     try {
-      await createAccountWithEmail(email.trim(), password);
-      router.replace("/onboarding");
+      const available = await isUsernameAvailable(username);
+      if (!available) {
+        setFormError("That username is taken. Please choose another.");
+        return;
+      }
+      await createAccountWithEmail(email.trim(), password, username.trim().toLowerCase());
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Unable to create account.");
     } finally {
@@ -58,6 +79,16 @@ export default function SignupScreen() {
     <SafeAreaView style={styles.root}>
       <View style={styles.card}>
         <Text style={styles.brandScript}>Recomi</Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="username"
+          placeholderTextColor="#94a3b8"
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={username}
+          onChangeText={setUsername}
+        />
 
         <TextInput
           style={styles.input}

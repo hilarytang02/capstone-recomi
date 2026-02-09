@@ -135,7 +135,11 @@ export async function findUserByUsername(username: string, db: Firestore = fires
 }
 
 // Returns true when no existing user has claimed the normalized username.
-export async function isUsernameAvailable(username: string, db: Firestore = firestore): Promise<boolean> {
+export async function isUsernameAvailable(
+  username: string,
+  excludeUid?: string,
+  db: Firestore = firestore,
+): Promise<boolean> {
   const normalized = sanitizeUsername(username)
   if (!normalized) return false
   const snapshot = await getDocs(
@@ -145,7 +149,14 @@ export async function isUsernameAvailable(username: string, db: Firestore = fire
       limitQuery(1),
     ),
   )
-  return snapshot.empty
+  if (snapshot.empty) {
+    return true
+  }
+  const docSnapshot = snapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
+  if (excludeUid && docSnapshot.id === excludeUid) {
+    return true
+  }
+  return false
 }
 
 const buildFallbackUsername = (user: User) => {
