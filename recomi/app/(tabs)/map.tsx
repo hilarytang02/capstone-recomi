@@ -625,7 +625,7 @@ const reopenListModalRef = React.useRef(false);
         style={StyleSheet.absoluteFill}
         provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
         initialRegion={userCoords ? makeRegion(userCoords.latitude, userCoords.longitude) : WORLD}
-        region={region}
+        region={Platform.OS === "android" ? region : undefined}
         onRegionChangeComplete={async (nextRegion) => {
           setRegion(nextRegion);
           try {
