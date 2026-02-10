@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
-import { searchNearbyPlace, searchPlaceByText } from "../../shared/api/places";
+import { searchNearbyPlace, searchNearbyPlaces, searchPlaceByText } from "../../shared/api/places";
 import {
   useSavedLists,
   type SavedEntry,
@@ -73,6 +73,15 @@ type PinData = {
   placeId?: string | null;
 };
 
+type TenantCandidate = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  placeId: string;
+  floorLabel: string;
+};
+
 type ListBucket = "none" | "wishlist" | "favourite";
 
 const buildLabel = (place: any, fallback: string) => {
@@ -122,6 +131,10 @@ export default function MapScreen() {
   } | null>(null);
   const latestPinRequestRef = React.useRef(0);
   const lastTapAtRef = React.useRef(0);
+  const [tenantPickerVisible, setTenantPickerVisible] = React.useState(false);
+  const [tenantCandidates, setTenantCandidates] = React.useState<TenantCandidate[]>([]);
+  const [tenantFloors, setTenantFloors] = React.useState<string[]>([]);
+  const [tenantFloor, setTenantFloor] = React.useState<string | null>(null);
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
 const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 const [newListModalVisible, setNewListModalVisible] = React.useState(false);
@@ -165,6 +178,113 @@ const reopenListModalRef = React.useRef(false);
     }
     return Math.abs(a.lat - b.lat) < 1e-8 && Math.abs(a.lng - b.lng) < 1e-8;
   }, []);
+
+  const getAddressPart = (components: any[] | undefined, type: string) =>
+    components?.find((part) => Array.isArray(part?.types) && part.types.includes(type))?.longText ??
+    components?.find((part) => Array.isArray(part?.types) && part.types.includes(type))?.shortText ??
+    null;
+
+  const getAddressKey = (components?: any[]) => {
+    const streetNumber = getAddressPart(components, "street_number");
+    const route = getAddressPart(components, "route");
+    if (!streetNumber || !route) return null;
+    return `${streetNumber} ${route}`.toLowerCase();
+  };
+
+  const floorNumberFromShop = (raw: string) => {
+    const digits = (raw.match(/\d+/g) || []).join("");
+    if (!digits) return null;
+    if (digits.length <= 2) return parseInt(digits, 10);
+    const floorDigits = digits.slice(0, digits.length - 2);
+    return parseInt(floorDigits, 10);
+  };
+
+  const normalizeFloorLabel = (raw: string | null) => {
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    if (/^g\/f$/i.test(trimmed)) return "G/F";
+    const floorMatch = trimmed.match(/\b(\d+)\s*\/\s*f\b/i);
+    if (floorMatch?.[1]) return `${floorMatch[1]}/F`;
+    const levelMatch = trimmed.match(/\b(floor|fl|lvl|level)\s*([0-9]+)\b/i);
+    if (levelMatch?.[2]) return `${levelMatch[2]}/F`;
+    return trimmed;
+  };
+
+  const getFloorLabel = (components?: any[], formattedAddress?: string | null) => {
+    const floor = normalizeFloorLabel(getAddressPart(components, "floor"));
+    if (floor) return floor;
+    const subpremise = getAddressPart(components, "subpremise");
+    if (subpremise) {
+      const normalized = normalizeFloorLabel(subpremise);
+      if (normalized) return normalized;
+      const inferred = floorNumberFromShop(subpremise);
+      if (typeof inferred === "number" && !Number.isNaN(inferred)) {
+        return inferred === 0 ? "G/F" : `${inferred}/F`;
+      }
+      return subpremise;
+    }
+    if (!formattedAddress) return "Other";
+    const match = formattedAddress.match(/\b(floor|fl|lvl|level)\s*([0-9]+)\b/i);
+    if (match?.[2]) return `${match[2]}/F`;
+    return "Other";
+  };
+
+  const BUILDING_TYPES = React.useMemo(
+    () =>
+      new Set([
+        "shopping_mall",
+        "premise",
+        "subpremise",
+        "establishment",
+        "department_store",
+      ]),
+    []
+  );
+
+  const loadTenantsForPlace = React.useCallback(
+    async (place: any) => {
+      const addressKey = getAddressKey(place.addressComponents);
+      if (!addressKey) return false;
+
+      const nearby = await searchNearbyPlaces(
+        { lat: place.location.lat, lng: place.location.lng },
+        { radiusMeters: 150, maxResultCount: 50 }
+      );
+
+      const sameAddress = nearby.filter((candidate) => {
+        const key = getAddressKey(candidate.addressComponents as any[]);
+        return key && key === addressKey;
+      });
+
+      if (sameAddress.length < 2) return false;
+
+      const candidates = sameAddress.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        lat: candidate.location.lat,
+        lng: candidate.location.lng,
+        placeId: candidate.id,
+        floorLabel: getFloorLabel(candidate.addressComponents as any[], candidate.formattedAddress),
+      }));
+
+      const floors = Array.from(new Set(candidates.map((c) => c.floorLabel)));
+      const floorValue = (label: string) => {
+        if (label === "Other") return Number.POSITIVE_INFINITY;
+        if (label === "G/F") return 0;
+        const match = label.match(/(\d+)/);
+        if (match?.[1]) return parseInt(match[1], 10);
+        return Number.POSITIVE_INFINITY - 1;
+      };
+      const sortedFloors = floors.sort((a, b) => floorValue(a) - floorValue(b));
+      setTenantCandidates(candidates);
+      setTenantFloors(sortedFloors);
+      setTenantFloor(sortedFloors[0] ?? null);
+      setTenantPickerVisible(true);
+      return true;
+    },
+    [BUILDING_TYPES]
+  );
 
   React.useEffect(() => {
     if (!pin) {
@@ -310,6 +430,16 @@ const reopenListModalRef = React.useRef(false);
       if (place) {
         nextLat = place.location.lat;
         nextLng = place.location.lng;
+        const isBuilding =
+          BUILDING_TYPES.has(place.primaryType ?? "") ||
+          (place.types ?? []).some((type) => BUILDING_TYPES.has(type));
+        if (isBuilding) {
+          const handled = await loadTenantsForPlace(place);
+          if (handled) {
+            setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
+            return;
+          }
+        }
         setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
       } else {
         const results = await Location.geocodeAsync(trimmed);
@@ -350,6 +480,16 @@ const reopenListModalRef = React.useRef(false);
       .then(async (place) => {
         if (latestPinRequestRef.current !== requestId) return;
         if (place) {
+          const isBuilding =
+            BUILDING_TYPES.has(place.primaryType ?? "") ||
+            (place.types ?? []).some((type) => BUILDING_TYPES.has(type));
+          if (isBuilding) {
+            const handled = await loadTenantsForPlace(place);
+            if (handled) {
+              setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
+              return;
+            }
+          }
           setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
           return;
         }
@@ -385,6 +525,23 @@ const reopenListModalRef = React.useRef(false);
     focusOn(coordinate.latitude, coordinate.longitude, { targetSheet: "half" });
     setPinSaveStatus(null);
     setBulkMovePrompt(null);
+  };
+
+  const visibleTenants = React.useMemo(() => {
+    if (!tenantFloor) return tenantCandidates;
+    return tenantCandidates.filter((candidate) => candidate.floorLabel === tenantFloor);
+  }, [tenantCandidates, tenantFloor]);
+
+  const handleTenantSelect = (tenant: TenantCandidate) => {
+    setTenantPickerVisible(false);
+    setPin({
+      lat: tenant.lat,
+      lng: tenant.lng,
+      label: tenant.name,
+      placeId: tenant.placeId,
+    });
+    setSheetState("half");
+    focusOn(tenant.lat, tenant.lng, { targetSheet: "half" });
   };
 
   // Reset camera heading to north when the compass button is tapped.
@@ -850,6 +1007,57 @@ const reopenListModalRef = React.useRef(false);
           )}
         </View>
       )}
+
+      <Modal
+        transparent
+        visible={tenantPickerVisible}
+        animationType="fade"
+        onRequestClose={() => setTenantPickerVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setTenantPickerVisible(false)} />
+        <View style={styles.tenantPickerCard}>
+          <View style={styles.tenantPickerHeader}>
+            <Text style={styles.tenantPickerTitle}>Select a store</Text>
+            <Pressable onPress={() => setTenantPickerVisible(false)} style={styles.sheetClose}>
+              <Text style={styles.sheetCloseText}>Close</Text>
+            </Pressable>
+          </View>
+          <View style={styles.tenantPickerBody}>
+            <View style={styles.tenantFloors}>
+              <FlatList
+                data={tenantFloors}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => {
+                  const active = item === tenantFloor;
+                  return (
+                    <Pressable
+                      onPress={() => setTenantFloor(item)}
+                      style={[styles.tenantFloorItem, active && styles.tenantFloorItemActive]}
+                    >
+                      <Text style={[styles.tenantFloorText, active && styles.tenantFloorTextActive]}>
+                        {item}
+                      </Text>
+                    </Pressable>
+                  );
+                }}
+              />
+            </View>
+            <View style={styles.tenantList}>
+              <FlatList
+                data={visibleTenants}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <Pressable onPress={() => handleTenantSelect(item)} style={styles.tenantItem}>
+                    <Text style={styles.tenantItemText} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={listModalVisible}
@@ -1328,6 +1536,73 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: "rgba(15, 23, 42, 0.4)",
+  },
+  tenantPickerCard: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 32,
+    maxHeight: "70%",
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 16,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  tenantPickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  tenantPickerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  tenantPickerBody: {
+    flexDirection: "row",
+    gap: 12,
+    maxHeight: "85%",
+  },
+  tenantFloors: {
+    width: 96,
+  },
+  tenantFloorItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#f1f5f9",
+    marginBottom: 8,
+  },
+  tenantFloorItemActive: {
+    backgroundColor: "#0f172a",
+  },
+  tenantFloorText: {
+    fontSize: 12,
+    color: "#475569",
+    fontWeight: "600",
+  },
+  tenantFloorTextActive: {
+    color: "#ffffff",
+  },
+  tenantList: {
+    flex: 1,
+  },
+  tenantItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "#f8fafc",
+    marginBottom: 8,
+  },
+  tenantItemText: {
+    fontSize: 14,
+    color: "#0f172a",
+    fontWeight: "600",
   },
   modalContent: {
     position: "absolute",
