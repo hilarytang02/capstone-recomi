@@ -58,9 +58,17 @@ const pickLatest = (candidates: Array<{ id: string; savedAt: number }>) => {
   return candidates.reduce((best, next) => (next.savedAt > best.savedAt ? next : best)).id
 }
 
-const usePlaceEngagement = (pin: PlacePin | null): PlaceEngagement => {
+const usePlaceEngagement = (
+  pin: PlacePin | null,
+  transition: { from: "wishlist" | "favourite" | "none" | null; to: "wishlist" | "favourite" | "none" | null } | null
+): PlaceEngagement => {
   const { user } = useAuth()
   const [counts, setCounts] = React.useState({ wishlistCount: 0, favouriteCount: 0 })
+  const countsCacheRef = React.useRef<Map<string, { wishlistCount: number; favouriteCount: number }>>(new Map())
+  const hasSnapshotRef = React.useRef<Map<string, boolean>>(new Map())
+  const pendingWritesRef = React.useRef<Map<string, boolean>>(new Map())
+  const lastTransitionRef = React.useRef<string | null>(null)
+  const [hasSnapshot, setHasSnapshot] = React.useState(false)
   const [friends, setFriends] = React.useState<Pick<PlaceEngagement, "wishlistFriend" | "favouriteFriend">>({
     wishlistFriend: null,
     favouriteFriend: null,
@@ -73,20 +81,58 @@ const usePlaceEngagement = (pin: PlacePin | null): PlaceEngagement => {
     }
 
     const placeId = placeIdFromPin(pin)
+    const cached = countsCacheRef.current.get(placeId)
+    if (cached) {
+      setCounts(cached)
+      setHasSnapshot(true)
+    } else {
+      setCounts({ wishlistCount: 0, favouriteCount: 0 })
+      setHasSnapshot(false)
+    }
     const ref = doc(firestore, PLACE_STATS_COLLECTION, placeId)
     const unsubscribe = onSnapshot(ref, (snapshot) => {
+      pendingWritesRef.current.set(placeId, snapshot.metadata.hasPendingWrites)
       if (!snapshot.exists()) {
+        hasSnapshotRef.current.set(placeId, true)
+        setHasSnapshot(true)
         setCounts({ wishlistCount: 0, favouriteCount: 0 })
         return
       }
       const data = snapshot.data()
-      setCounts({
+      const nextCounts = {
         wishlistCount: typeof data?.wishlistCount === "number" ? data.wishlistCount : 0,
         favouriteCount: typeof data?.favouriteCount === "number" ? data.favouriteCount : 0,
-      })
+      }
+      hasSnapshotRef.current.set(placeId, true)
+      setHasSnapshot(true)
+      countsCacheRef.current.set(placeId, nextCounts)
+      setCounts(nextCounts)
     })
     return unsubscribe
-  }, [pin?.lat, pin?.lng])
+  }, [pin?.lat, pin?.lng, pin?.placeId])
+
+  React.useEffect(() => {
+    if (!pin || !transition) {
+      lastTransitionRef.current = null
+      return
+    }
+    const placeId = placeIdFromPin(pin)
+    const transitionKey = `${placeId}:${transition.from ?? "none"}>${transition.to ?? "none"}`
+    if (lastTransitionRef.current === transitionKey) return
+    lastTransitionRef.current = transitionKey
+    if (pendingWritesRef.current.get(placeId)) return
+    const wishlistDelta =
+      (transition.to === "wishlist" ? 1 : 0) - (transition.from === "wishlist" ? 1 : 0)
+    const favouriteDelta =
+      (transition.to === "favourite" ? 1 : 0) - (transition.from === "favourite" ? 1 : 0)
+    const base = countsCacheRef.current.get(placeId) ?? counts
+    const optimistic = {
+      wishlistCount: Math.max(0, base.wishlistCount + wishlistDelta),
+      favouriteCount: Math.max(0, base.favouriteCount + favouriteDelta),
+    }
+    countsCacheRef.current.set(placeId, optimistic)
+    setCounts(optimistic)
+  }, [counts, pin, transition])
 
   React.useEffect(() => {
     let active = true
@@ -170,13 +216,14 @@ const usePlaceEngagement = (pin: PlacePin | null): PlaceEngagement => {
     return () => {
       active = false
     }
-  }, [pin?.lat, pin?.lng, user?.uid])
+  }, [pin?.lat, pin?.lng, pin?.placeId, user?.uid])
 
   return {
     wishlistCount: counts.wishlistCount,
     favouriteCount: counts.favouriteCount,
     wishlistFriend: friends.wishlistFriend,
     favouriteFriend: friends.favouriteFriend,
+    hasSnapshot,
   }
 }
 
@@ -191,7 +238,7 @@ export default function PlaceSocialProof({
   transition?: { from: "wishlist" | "favourite" | "none" | null; to: "wishlist" | "favourite" | "none" | null } | null
   onTransitionSettled?: () => void
 }) {
-  const { wishlistCount, favouriteCount, wishlistFriend, favouriteFriend } = usePlaceEngagement(pin)
+  const { wishlistCount, favouriteCount, wishlistFriend, favouriteFriend, hasSnapshot } = usePlaceEngagement(pin, transition)
   const transitionBaselineRef = React.useRef<{ wishlist: number; favourite: number } | null>(null)
 
   React.useEffect(() => {
@@ -221,24 +268,8 @@ export default function PlaceSocialProof({
       onTransitionSettled()
     }
   }, [favouriteCount, onTransitionSettled, transition, wishlistCount])
-  const wishlistDelta =
-    (transition?.to === "wishlist" ? 1 : 0) - (transition?.from === "wishlist" ? 1 : 0)
-  const favouriteDelta =
-    (transition?.to === "favourite" ? 1 : 0) - (transition?.from === "favourite" ? 1 : 0)
-  let displayWishlistCount = Math.max(0, wishlistCount + wishlistDelta)
-  let displayFavouriteCount = Math.max(0, favouriteCount + favouriteDelta)
-  if (transition?.from === "wishlist" && transition?.to !== "wishlist") {
-    displayWishlistCount = 0
-  }
-  if (transition?.from === "favourite" && transition?.to !== "favourite") {
-    displayFavouriteCount = 0
-  }
-  if (!transition && viewerBucket === "favourite" && wishlistCount <= 1) {
-    displayWishlistCount = 0
-  }
-  if (!transition && viewerBucket === "wishlist" && favouriteCount <= 1) {
-    displayFavouriteCount = 0
-  }
+  let displayWishlistCount = Math.max(0, wishlistCount)
+  let displayFavouriteCount = Math.max(0, favouriteCount)
   const { lines, incentive } = React.useMemo(
     () =>
       getSocialProofLines({
@@ -260,6 +291,10 @@ export default function PlaceSocialProof({
   )
 
   if (!pin) {
+    return null
+  }
+
+  if (!hasSnapshot && !transition && displayWishlistCount === 0 && displayFavouriteCount === 0) {
     return null
   }
 
