@@ -28,6 +28,7 @@ export type SavedEntry = {
     lat: number
     lng: number
     label: string
+    placeId?: string | null
   }
   savedAt: number
 }
@@ -224,6 +225,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
             lat: normalizedPin.lat,
             lng: normalizedPin.lng,
             label: normalizedPin.label ?? null,
+            placeId: normalizedPin.placeId ?? null,
             updatedAt: serverTimestamp(),
           },
           { merge: true }

@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
+import { searchNearbyPlace, searchPlaceByText } from "../../shared/api/places";
 import {
   useSavedLists,
   type SavedEntry,
@@ -69,6 +70,7 @@ type PinData = {
   lat: number;
   lng: number;
   label: string;
+  placeId?: string | null;
 };
 
 type ListBucket = "none" | "wishlist" | "favourite";
@@ -118,6 +120,7 @@ export default function MapScreen() {
     wishlistListIds: string[];
     locationLabel: string;
   } | null>(null);
+  const latestPinRequestRef = React.useRef(0);
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
 const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 const [newListModalVisible, setNewListModalVisible] = React.useState(false);
@@ -146,6 +149,22 @@ const reopenListModalRef = React.useRef(false);
     }
   }, [initialListStates, listModalVisible]);
 
+  const resolvePlaceId = React.useCallback(
+    async (label: string, coords: { lat: number; lng: number }) => {
+      if (!label || label === "Dropped pin") return null;
+      const result = await searchPlaceByText({ textQuery: label, location: coords });
+      return result?.id ?? null;
+    },
+    []
+  );
+
+  const pinMatches = React.useCallback((a: PinData, b: PinData) => {
+    if (a.placeId && b.placeId) {
+      return a.placeId === b.placeId;
+    }
+    return Math.abs(a.lat - b.lat) < 1e-8 && Math.abs(a.lng - b.lng) < 1e-8;
+  }, []);
+
   React.useEffect(() => {
     if (!pin) {
       setPinSaveStatus(null);
@@ -154,11 +173,7 @@ const reopenListModalRef = React.useRef(false);
       return;
     }
 
-    const matches = entries.filter(
-      (entry) =>
-        Math.abs(entry.pin.lat - pin.lat) < 1e-8 &&
-        Math.abs(entry.pin.lng - pin.lng) < 1e-8
-    );
+    const matches = entries.filter((entry) => pinMatches(entry.pin, pin));
 
     const nextInitial: Record<string, ListBucket> = {};
     lists.forEach((list) => {
@@ -281,15 +296,33 @@ const reopenListModalRef = React.useRef(false);
     }
 
     try {
-      const results = await Location.geocodeAsync(trimmed);
-      const match = results[0];
-      if (!match) return;
+      const requestId = ++latestPinRequestRef.current;
+      let nextLat = 0;
+      let nextLng = 0;
+      const place = await searchPlaceByText({
+        textQuery: trimmed,
+        location: userCoords ? { lat: userCoords.latitude, lng: userCoords.longitude } : undefined,
+      });
 
-      const { latitude, longitude } = match;
-      const label = buildLabel(match, trimmed);
-      setPin({ lat: latitude, lng: longitude, label });
+      if (latestPinRequestRef.current !== requestId) return;
+
+      if (place) {
+        nextLat = place.location.lat;
+        nextLng = place.location.lng;
+        setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
+      } else {
+        const results = await Location.geocodeAsync(trimmed);
+        const match = results[0];
+        if (!match) return;
+        const { latitude, longitude } = match;
+        nextLat = latitude;
+        nextLng = longitude;
+        const label = buildLabel(match, trimmed);
+        const placeId = await resolvePlaceId(label, { lat: latitude, lng: longitude });
+        setPin({ lat: latitude, lng: longitude, label, placeId });
+      }
       setSheetState("half");
-      focusOn(latitude, longitude, { targetSheet: "half" });
+      focusOn(nextLat, nextLng, { targetSheet: "half" });
       setPinSaveStatus(null);
       setBulkMovePrompt(null);
     } catch (err) {
@@ -300,6 +333,7 @@ const reopenListModalRef = React.useRef(false);
   // Supports long-press/double-tap interactions by dropping pins directly on the map.
   const handleMapPress = ({ latitude, longitude }: { latitude: number; longitude: number }) => {
     dismissKeyboard();
+    const requestId = ++latestPinRequestRef.current;
     const basePin: PinData = { lat: latitude, lng: longitude, label: "Dropped pin" };
     setPin(basePin);
     setQuery("");
@@ -308,13 +342,20 @@ const reopenListModalRef = React.useRef(false);
     setPinSaveStatus(null);
     setBulkMovePrompt(null);
 
-    void Location.reverseGeocodeAsync({ latitude, longitude })
-      .then((results) => {
+    void searchNearbyPlace({ lat: latitude, lng: longitude })
+      .then(async (place) => {
+        if (latestPinRequestRef.current !== requestId) return;
+        if (place) {
+          setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
+          return;
+        }
+
+        const results = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (latestPinRequestRef.current !== requestId) return;
         const name = buildLabel(results?.[0], basePin.label);
-        setPin((current) => {
-          if (!current) return current;
-          return coordsMatch(current, basePin) ? { ...current, label: name } : current;
-        });
+        const placeId = await resolvePlaceId(name, { lat: latitude, lng: longitude });
+        if (latestPinRequestRef.current !== requestId) return;
+        setPin({ lat: latitude, lng: longitude, label: name, placeId });
       })
       .catch((err) => {
         console.warn("Reverse geocode failed:", err);
