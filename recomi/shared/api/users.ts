@@ -40,6 +40,7 @@ export type UserDocument = {
   usernameLowercase?: string | null
   bio?: string | null
   homeCity?: string | null
+  fcmTokens?: string[]
   followersCount?: number
   followingCount?: number
   savedPlacesCount?: number

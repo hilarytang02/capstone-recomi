@@ -104,6 +104,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
             setOnboardingLoading(false);
           }
         })();
+        // Push notifications disabled for now (no APNs). In-app invites still work.
       } else {
         setOnboardingComplete(false);
         setOnboardingLoading(false);
@@ -298,11 +299,19 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   const shouldBlock = initializing || onboardingLoading || !rootNavigationState?.key;
 
+  if (shouldBlock) {
+    return (
+      <View style={[styles.overlay, styles.overlaySolid]}>
+        <ActivityIndicator size="large" color="#0f172a" />
+      </View>
+    );
+  }
+
   return (
     <>
       {children}
-      {shouldBlock || isNavigating ? (
-        <View style={[styles.overlay, shouldBlock ? styles.overlaySolid : null]}>
+      {isNavigating ? (
+        <View style={styles.overlay}>
           <ActivityIndicator size="large" color="#0f172a" />
         </View>
       ) : null}

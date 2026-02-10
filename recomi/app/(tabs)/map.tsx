@@ -21,7 +21,7 @@ import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, query as firestoreQuery, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query as firestoreQuery, serverTimestamp, where } from "firebase/firestore";
 import { searchNearbyPlace, searchNearbyPlaces, searchPlaceByText } from "../../shared/api/places";
 import {
   useSavedLists,
@@ -635,6 +635,25 @@ const reopenListModalRef = React.useRef(false);
     const placeLabel = pin?.label ?? "this place";
     return `Hey ${name}, want to go to ${placeLabel} together?`;
   }, [inviteTarget, pin?.label]);
+
+  const sendInvite = React.useCallback(async () => {
+    if (!user?.uid || !inviteTarget || !pin) return;
+    const message = inviteMessage.trim() || defaultInviteMessage;
+    try {
+      await addDoc(collection(firestore, "invites"), {
+        fromUserId: user.uid,
+        toUserId: inviteTarget.id,
+        placeId: placeIdFromPin(pin),
+        placeLabel: pin.label ?? "this place",
+        message,
+        status: "sent",
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.warn("Failed to send invite", error);
+    }
+    setInviteModalOpen(false);
+  }, [defaultInviteMessage, inviteMessage, inviteTarget, pin, user?.uid]);
 
   React.useEffect(() => {
     const load = async () => {
@@ -1534,9 +1553,7 @@ const reopenListModalRef = React.useRef(false);
             </Pressable>
             <Pressable
               onPress={() => {
-                const message = inviteMessage.trim() || defaultInviteMessage;
-                console.log("Invite sent", { to: inviteTarget?.id, message });
-                setInviteModalOpen(false);
+                void sendInvite();
               }}
               style={[styles.inviteButton, styles.inviteButtonPrimary]}
             >

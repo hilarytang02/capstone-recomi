@@ -62,7 +62,7 @@ const usePlaceEngagement = (
   pin: PlacePin | null,
   transition: { from: "wishlist" | "favourite" | "none" | null; to: "wishlist" | "favourite" | "none" | null } | null
 ): PlaceEngagement => {
-  const { user } = useAuth()
+  const { user, initializing } = useAuth()
   const [counts, setCounts] = React.useState({ wishlistCount: 0, favouriteCount: 0 })
   const countsCacheRef = React.useRef<Map<string, { wishlistCount: number; favouriteCount: number }>>(new Map())
   const hasSnapshotRef = React.useRef<Map<string, boolean>>(new Map())
@@ -75,7 +75,7 @@ const usePlaceEngagement = (
   })
 
   React.useEffect(() => {
-    if (!pin) {
+    if (!pin || !user?.uid || initializing) {
       setCounts({ wishlistCount: 0, favouriteCount: 0 })
       setFriends({ wishlistFriend: null, favouriteFriend: null })
       return
@@ -110,7 +110,7 @@ const usePlaceEngagement = (
       setCounts(nextCounts)
     })
     return unsubscribe
-  }, [pin?.lat, pin?.lng, pin?.placeId])
+  }, [pin?.lat, pin?.lng, pin?.placeId, user?.uid])
 
   React.useEffect(() => {
     if (!pin || !transition) {

@@ -2,40 +2,95 @@ import React from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { firestore } from "@/shared/firebase/app";
+import { useAuth } from "@/shared/context/auth";
 
-const MOCK_NOTIFICATIONS = [
-  {
-    id: "n1",
-    type: "received",
-    title: "Jamie invited you",
-    subtitle: "Wants to go to Hysan Place",
-    time: "2m",
-  },
-  {
-    id: "n2",
-    type: "sent",
-    title: "Invite sent to Amina",
-    subtitle: "Let’s try Bakehouse",
-    time: "12m",
-  },
-  {
-    id: "n3",
-    type: "received",
-    title: "Alex invited you",
-    subtitle: "Dinner at Yardbird?",
-    time: "1h",
-  },
-  {
-    id: "n4",
-    type: "sent",
-    title: "Invite sent to Chris",
-    subtitle: "Weekend coffee",
-    time: "3h",
-  },
-];
+type InviteItem = {
+  id: string;
+  type: "received" | "sent";
+  title: string;
+  subtitle: string;
+  time: string;
+};
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
+  const { user, initializing } = useAuth();
+  const [items, setItems] = React.useState<InviteItem[]>([]);
+
+  React.useEffect(() => {
+    if (!user?.uid || initializing) {
+      setItems([]);
+      return;
+    }
+
+    const sentQuery = query(
+      collection(firestore, "invites"),
+      where("fromUserId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    );
+    const receivedQuery = query(
+      collection(firestore, "invites"),
+      where("toUserId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    );
+
+    const unsubSent = onSnapshot(
+      sentQuery,
+      (snapshot) => {
+        const sent = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as { placeLabel?: string; message?: string; createdAt?: { toDate: () => Date } };
+          const time = data.createdAt?.toDate?.() ?? new Date();
+        return {
+          id: `sent-${docSnap.id}`,
+          type: "sent" as const,
+          title: "Invite sent",
+          subtitle: data.placeLabel ? `to ${data.placeLabel}` : data.message ?? "Invite sent",
+          time: time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        });
+        setItems((prev) => {
+          const received = prev.filter((item) => item.type === "received");
+          return [...sent, ...received].sort((a, b) => (a.time < b.time ? 1 : -1));
+        });
+      },
+      (error) => {
+        console.warn("Failed to load sent invites", error);
+        setItems([]);
+      }
+    );
+
+    const unsubReceived = onSnapshot(
+      receivedQuery,
+      (snapshot) => {
+        const received = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as { placeLabel?: string; message?: string; createdAt?: { toDate: () => Date } };
+          const time = data.createdAt?.toDate?.() ?? new Date();
+        return {
+          id: `received-${docSnap.id}`,
+          type: "received" as const,
+          title: "Invite received",
+          subtitle: data.placeLabel ? `to ${data.placeLabel}` : data.message ?? "Invite received",
+          time: time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        });
+        setItems((prev) => {
+          const sent = prev.filter((item) => item.type === "sent");
+          return [...sent, ...received].sort((a, b) => (a.time < b.time ? 1 : -1));
+        });
+      },
+      (error) => {
+        console.warn("Failed to load received invites", error);
+        setItems([]);
+      }
+    );
+
+    return () => {
+      unsubSent();
+      unsubReceived();
+    };
+  }, [initializing, user?.uid]);
   return (
     <View style={[styles.container, { paddingTop: insets.top + 16 }]}>
       <View style={styles.header}>
@@ -43,7 +98,7 @@ export default function NotificationsScreen() {
         <Text style={styles.subtitle}>Invites you send and receive</Text>
       </View>
       <FlatList
-        data={MOCK_NOTIFICATIONS}
+        data={items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (

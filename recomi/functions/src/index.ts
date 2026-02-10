@@ -7,6 +7,7 @@ admin.initializeApp();
 const db = admin.firestore();
 const USERS_COLLECTION = "users";
 const USER_FOLLOWS_COLLECTION = "userFollows";
+const INVITES_COLLECTION = "invites";
 
 async function deleteQueryBatch(query: admin.firestore.Query, batchSize = 250): Promise<void> {
   const snapshot = await query.limit(batchSize).get();
@@ -114,5 +115,50 @@ export const onFollowDeleted = onDocumentDeleted(
       return;
     }
     await adjustFollowStats(followerId, followeeId, -1);
+  }
+);
+
+export const onInviteCreated = onDocumentCreated(
+  { region: "us-central1", document: `${INVITES_COLLECTION}/{inviteId}` },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const data = snapshot.data();
+    const toUserId = data?.toUserId;
+    const fromUserId = data?.fromUserId;
+    const placeLabel = data?.placeLabel ?? "a place";
+    if (!toUserId || !fromUserId) return;
+
+    const toUserSnap = await db.collection(USERS_COLLECTION).doc(toUserId).get();
+    const toUser = toUserSnap.exists ? toUserSnap.data() : null;
+    const tokens = Array.isArray(toUser?.fcmTokens) ? (toUser?.fcmTokens as string[]) : [];
+    if (!tokens.length) {
+      logger.info("Invite created but no FCM tokens for user", { toUserId });
+      return;
+    }
+
+    const fromUserSnap = await db.collection(USERS_COLLECTION).doc(fromUserId).get();
+    const fromUser = fromUserSnap.exists ? fromUserSnap.data() : null;
+    const fromName = fromUser?.displayName ?? fromUser?.username ?? "Someone";
+
+    const payload: admin.messaging.MulticastMessage = {
+      tokens,
+      notification: {
+        title: `${fromName} invited you`,
+        body: `Want to go to ${placeLabel} together?`,
+      },
+      data: {
+        type: "invite",
+        fromUserId,
+        placeLabel,
+      },
+    };
+
+    try {
+      const response = await admin.messaging().sendEachForMulticast(payload);
+      logger.info("Invite push sent", { toUserId, successCount: response.successCount });
+    } catch (error) {
+      logger.error("Failed to send invite push", error);
+    }
   }
 );

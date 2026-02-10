@@ -1,4 +1,7 @@
 {
+  "firestore": {
+    "rules": "recomi/firestore.rules"
+  },
   "functions": {
     "source": "recomi/functions"
   }
