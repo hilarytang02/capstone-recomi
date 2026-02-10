@@ -155,6 +155,9 @@ export default function MapScreen() {
   const tenantPickerHidden = sheetState === "expanded";
   const [socialListOpen, setSocialListOpen] = React.useState(false);
   const [socialSavers, setSocialSavers] = React.useState<SocialSaver[]>([]);
+  const [inviteModalOpen, setInviteModalOpen] = React.useState(false);
+  const [inviteTarget, setInviteTarget] = React.useState<SocialSaver | null>(null);
+  const [inviteMessage, setInviteMessage] = React.useState("");
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
 const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 const [newListModalVisible, setNewListModalVisible] = React.useState(false);
@@ -625,6 +628,13 @@ const reopenListModalRef = React.useRef(false);
     setSheetState("half");
     focusOn(tenant.lat, tenant.lng, { targetSheet: "half" });
   };
+
+  const defaultInviteMessage = React.useMemo(() => {
+    if (!inviteTarget) return "";
+    const name = inviteTarget.displayName ?? (inviteTarget.username ? `@${inviteTarget.username}` : "there");
+    const placeLabel = pin?.label ?? "this place";
+    return `Hey ${name}, want to go to ${placeLabel} together?`;
+  }, [inviteTarget, pin?.label]);
 
   React.useEffect(() => {
     const load = async () => {
@@ -1158,32 +1168,41 @@ const reopenListModalRef = React.useRef(false);
                   <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>
                   {socialSavers.length ? (
                     socialSavers.map((profile) => (
-                      <Pressable
-                        key={profile.id}
-                        style={styles.socialRow}
-                        onPress={() => router.push(`/user/${profile.id}`)}
-                      >
-                        {profile.photoURL ? (
-                          <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
-                        ) : (
-                          <View style={styles.socialAvatarFallback}>
-                            <Text style={styles.socialAvatarText}>
-                              {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
+                      <View key={profile.id} style={styles.socialRow}>
+                        <Pressable
+                          style={styles.socialProfile}
+                          onPress={() => router.push(`/user/${profile.id}`)}
+                        >
+                          {profile.photoURL ? (
+                            <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
+                          ) : (
+                            <View style={styles.socialAvatarFallback}>
+                              <Text style={styles.socialAvatarText}>
+                                {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.socialInfo}>
+                            <Text style={styles.socialName} numberOfLines={1}>
+                              {profile.displayName ?? "Unknown"}
+                            </Text>
+                            <Text style={styles.socialUsername} numberOfLines={1}>
+                              {profile.username ? `@${profile.username}` : ""}
                             </Text>
                           </View>
-                        )}
-                        <View style={styles.socialInfo}>
-                          <Text style={styles.socialName} numberOfLines={1}>
-                            {profile.displayName ?? "Unknown"}
-                          </Text>
-                          <Text style={styles.socialUsername} numberOfLines={1}>
-                            {profile.username ? `@${profile.username}` : ""}
-                          </Text>
-                        </View>
-                        <Pressable style={styles.socialInvite} accessibilityRole="button">
+                        </Pressable>
+                        <Pressable
+                          style={styles.socialInvite}
+                          accessibilityRole="button"
+                          onPress={() => {
+                            setInviteTarget(profile);
+                            setInviteMessage("");
+                            setInviteModalOpen(true);
+                          }}
+                        >
                           <FontAwesome name="paper-plane" size={16} color="#0f172a" />
                         </Pressable>
-                      </Pressable>
+                      </View>
                     ))
                   ) : (
                     <Text style={styles.sheetHint}>No friends have saved this yet.</Text>
@@ -1488,6 +1507,44 @@ const reopenListModalRef = React.useRef(false);
           </View>
         )}
       </Modal>
+
+      <Modal
+        visible={inviteModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setInviteModalOpen(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setInviteModalOpen(false)} />
+        <View style={styles.inviteModal}>
+          <Text style={styles.inviteTitle}>Invite to visit</Text>
+          <TextInput
+            value={inviteMessage}
+            onChangeText={setInviteMessage}
+            placeholder={defaultInviteMessage}
+            placeholderTextColor="#94a3b8"
+            style={styles.inviteInput}
+            multiline
+          />
+          <View style={styles.inviteActions}>
+            <Pressable
+              onPress={() => setInviteModalOpen(false)}
+              style={[styles.inviteButton, styles.inviteButtonSecondary]}
+            >
+              <Text style={styles.inviteButtonSecondaryText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const message = inviteMessage.trim() || defaultInviteMessage;
+                console.log("Invite sent", { to: inviteTarget?.id, message });
+                setInviteModalOpen(false);
+              }}
+              style={[styles.inviteButton, styles.inviteButtonPrimary]}
+            >
+              <Text style={styles.inviteButtonPrimaryText}>Send</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1764,6 +1821,12 @@ const styles = StyleSheet.create({
   socialInfo: {
     flex: 1,
   },
+  socialProfile: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
   socialName: {
     fontSize: 14,
     fontWeight: "600",
@@ -1779,7 +1842,64 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  inviteModal: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    top: "25%",
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 16,
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 12,
+  },
+  inviteTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+    marginBottom: 10,
+  },
+  inviteInput: {
+    minHeight: 80,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    fontSize: 14,
+    color: "#0f172a",
+    backgroundColor: "#f8fafc",
+    textAlignVertical: "top",
+  },
+  inviteActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 12,
+  },
+  inviteButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  inviteButtonPrimary: {
+    backgroundColor: "#0f172a",
+  },
+  inviteButtonSecondary: {
     backgroundColor: "#e2e8f0",
+  },
+  inviteButtonPrimaryText: {
+    color: "#ffffff",
+    fontWeight: "600",
+  },
+  inviteButtonSecondaryText: {
+    color: "#0f172a",
+    fontWeight: "600",
   },
   modalBackdrop: {
     position: "absolute",
