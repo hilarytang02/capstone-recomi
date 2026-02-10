@@ -105,7 +105,7 @@ const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: num
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
-  const mapRef = React.useRef<MapView | null>(null);
+  const mapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const [region, setRegion] = React.useState<Region>(WORLD);
   const [locPerm, setLocPerm] = React.useState<"granted" | "denied" | "undetermined">("undetermined");
   const [query, setQuery] = React.useState("");
@@ -135,6 +135,8 @@ export default function MapScreen() {
   const [tenantCandidates, setTenantCandidates] = React.useState<TenantCandidate[]>([]);
   const [tenantFloors, setTenantFloors] = React.useState<string[]>([]);
   const [tenantFloor, setTenantFloor] = React.useState<string | null>(null);
+  const [tenantAnchor, setTenantAnchor] = React.useState<{ lat: number; lng: number } | null>(null);
+  const tenantPickerHidden = sheetState === "expanded";
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
 const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 const [newListModalVisible, setNewListModalVisible] = React.useState(false);
@@ -230,6 +232,28 @@ const reopenListModalRef = React.useRef(false);
     return "Other";
   };
 
+  const metersBetween = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const sinLat = Math.sin(dLat / 2);
+    const sinLng = Math.sin(dLng / 2);
+    const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+    return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+  };
+
+  const isBuildingCentered = React.useCallback(
+    (coords: { lat: number; lng: number }) => {
+      if (!region) return false;
+      if (region.latitudeDelta > 0.001) return false;
+      const distance = metersBetween(coords, { lat: region.latitude, lng: region.longitude });
+      return distance <= 5;
+    },
+    [region]
+  );
+
   const BUILDING_TYPES = React.useMemo(
     () =>
       new Set([
@@ -280,10 +304,13 @@ const reopenListModalRef = React.useRef(false);
       setTenantCandidates(candidates);
       setTenantFloors(sortedFloors);
       setTenantFloor(sortedFloors[0] ?? null);
-      setTenantPickerVisible(true);
+      setTenantAnchor({ lat: place.location.lat, lng: place.location.lng });
+      if (isBuildingCentered({ lat: place.location.lat, lng: place.location.lng })) {
+        setTenantPickerVisible(true);
+      }
       return true;
     },
-    [BUILDING_TYPES]
+    [BUILDING_TYPES, isBuildingCentered]
   );
 
   React.useEffect(() => {
@@ -513,12 +540,33 @@ const reopenListModalRef = React.useRef(false);
     const now = Date.now();
     if (now - lastTapAtRef.current < 200) return;
     lastTapAtRef.current = now;
-    latestPinRequestRef.current += 1;
-    setPin({
-      lat: coordinate.latitude,
-      lng: coordinate.longitude,
-      label: typeof name === "string" && name.trim() ? name : "Selected place",
-      placeId: typeof placeId === "string" ? placeId : null,
+    const requestId = ++latestPinRequestRef.current;
+    const fallbackLabel = typeof name === "string" && name.trim() ? name : "Selected place";
+    void searchPlaceByText({
+      textQuery: fallbackLabel,
+      location: { lat: coordinate.latitude, lng: coordinate.longitude },
+    }).then(async (place) => {
+      if (latestPinRequestRef.current !== requestId) return;
+      if (place) {
+        const isBuilding =
+          BUILDING_TYPES.has(place.primaryType ?? "") ||
+          (place.types ?? []).some((type) => BUILDING_TYPES.has(type));
+        if (isBuilding) {
+          const handled = await loadTenantsForPlace(place);
+          if (handled) {
+            setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
+            return;
+          }
+        }
+        setPin({ lat: place.location.lat, lng: place.location.lng, label: place.name, placeId: place.id });
+      } else {
+        setPin({
+          lat: coordinate.latitude,
+          lng: coordinate.longitude,
+          label: fallbackLabel,
+          placeId: typeof placeId === "string" ? placeId : null,
+        });
+      }
     });
     setQuery("");
     setSheetState("half");
@@ -531,6 +579,22 @@ const reopenListModalRef = React.useRef(false);
     if (!tenantFloor) return tenantCandidates;
     return tenantCandidates.filter((candidate) => candidate.floorLabel === tenantFloor);
   }, [tenantCandidates, tenantFloor]);
+
+  React.useEffect(() => {
+    if (!tenantPickerVisible || !tenantAnchor) return;
+    if (!isBuildingCentered(tenantAnchor)) {
+      setTenantPickerVisible(false);
+    }
+  }, [isBuildingCentered, tenantAnchor, tenantPickerVisible]);
+
+  const tenantPickerStyle = React.useMemo(() => {
+    const maxHeight = sheetState === "half" ? "40%" : "48%";
+    const recenterStack = 240;
+    const bottomOffset =
+      sheetState === "half" ? sheetHeight + 16 : insets.bottom + 24 + recenterStack;
+    const rightInset = sheetState === "half" ? 16 : 160;
+    return { top: insets.top + 72, bottom: bottomOffset, maxHeight, right: rightInset };
+  }, [insets.bottom, insets.top, sheetHeight, sheetState]);
 
   const handleTenantSelect = (tenant: TenantCandidate) => {
     setTenantPickerVisible(false);
@@ -1010,12 +1074,12 @@ const reopenListModalRef = React.useRef(false);
 
       <Modal
         transparent
-        visible={tenantPickerVisible}
+        visible={tenantPickerVisible && !tenantPickerHidden}
         animationType="fade"
         onRequestClose={() => setTenantPickerVisible(false)}
       >
         <Pressable style={styles.modalBackdrop} onPress={() => setTenantPickerVisible(false)} />
-        <View style={styles.tenantPickerCard}>
+        <View style={[styles.tenantPickerCard, tenantPickerStyle]}>
           <View style={styles.tenantPickerHeader}>
             <Text style={styles.tenantPickerTitle}>Select a store</Text>
             <Pressable onPress={() => setTenantPickerVisible(false)} style={styles.sheetClose}>
@@ -1025,6 +1089,7 @@ const reopenListModalRef = React.useRef(false);
           <View style={styles.tenantPickerBody}>
             <View style={styles.tenantFloors}>
               <FlatList
+                style={styles.tenantFloorList}
                 data={tenantFloors}
                 keyExtractor={(item) => item}
                 renderItem={({ item }) => {
@@ -1043,6 +1108,9 @@ const reopenListModalRef = React.useRef(false);
               />
             </View>
             <View style={styles.tenantList}>
+              <Text style={styles.tenantFloorHeading}>
+                {tenantFloor ?? "All floors"}
+              </Text>
               <FlatList
                 data={visibleTenants}
                 keyExtractor={(item) => item.id}
@@ -1541,8 +1609,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 16,
     right: 16,
-    bottom: 32,
-    maxHeight: "70%",
+    maxHeight: "60%",
     backgroundColor: "#ffffff",
     borderRadius: 18,
     padding: 16,
@@ -1571,6 +1638,9 @@ const styles = StyleSheet.create({
   tenantFloors: {
     width: 96,
   },
+  tenantFloorList: {
+    maxHeight: 160,
+  },
   tenantFloorItem: {
     paddingVertical: 8,
     paddingHorizontal: 10,
@@ -1591,6 +1661,14 @@ const styles = StyleSheet.create({
   },
   tenantList: {
     flex: 1,
+  },
+  tenantFloorHeading: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748b",
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   tenantItem: {
     paddingVertical: 10,
