@@ -121,6 +121,7 @@ export default function MapScreen() {
     locationLabel: string;
   } | null>(null);
   const latestPinRequestRef = React.useRef(0);
+  const lastTapAtRef = React.useRef(0);
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
 const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 const [newListModalVisible, setNewListModalVisible] = React.useState(false);
@@ -333,6 +334,9 @@ const reopenListModalRef = React.useRef(false);
   // Supports long-press/double-tap interactions by dropping pins directly on the map.
   const handleMapPress = ({ latitude, longitude }: { latitude: number; longitude: number }) => {
     dismissKeyboard();
+    const now = Date.now();
+    if (now - lastTapAtRef.current < 200) return;
+    lastTapAtRef.current = now;
     const requestId = ++latestPinRequestRef.current;
     const basePin: PinData = { lat: latitude, lng: longitude, label: "Dropped pin" };
     setPin(basePin);
@@ -360,6 +364,27 @@ const reopenListModalRef = React.useRef(false);
       .catch((err) => {
         console.warn("Reverse geocode failed:", err);
       });
+  };
+
+  const handlePoiPress = (event: any) => {
+    const { coordinate, name, placeId } = event?.nativeEvent ?? {};
+    if (!coordinate?.latitude || !coordinate?.longitude) return;
+    dismissKeyboard();
+    const now = Date.now();
+    if (now - lastTapAtRef.current < 200) return;
+    lastTapAtRef.current = now;
+    latestPinRequestRef.current += 1;
+    setPin({
+      lat: coordinate.latitude,
+      lng: coordinate.longitude,
+      label: typeof name === "string" && name.trim() ? name : "Selected place",
+      placeId: typeof placeId === "string" ? placeId : null,
+    });
+    setQuery("");
+    setSheetState("half");
+    focusOn(coordinate.latitude, coordinate.longitude, { targetSheet: "half" });
+    setPinSaveStatus(null);
+    setBulkMovePrompt(null);
   };
 
   // Reset camera heading to north when the compass button is tapped.
@@ -682,6 +707,8 @@ const reopenListModalRef = React.useRef(false);
           }
         }}
         onPress={({ nativeEvent }) => handleMapPress(nativeEvent.coordinate)}
+        onLongPress={({ nativeEvent }) => handleMapPress(nativeEvent.coordinate)}
+        onPoiClick={handlePoiPress}
         showsScale={false}
         showsCompass={false}
         showsUserLocation={locPerm === "granted"}
