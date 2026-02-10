@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
+import { useRouter } from "expo-router";
 import { collection, doc, getDoc, getDocs, query as firestoreQuery, where } from "firebase/firestore";
 import { searchNearbyPlace, searchNearbyPlaces, searchPlaceByText } from "../../shared/api/places";
 import {
@@ -117,6 +118,7 @@ const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: num
 // Combines search, map camera control, and list-saving UX into the home screen.
 export default function MapScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const mapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
@@ -1153,10 +1155,14 @@ const reopenListModalRef = React.useRef(false);
             <View style={styles.sheetBody}>
               {socialListOpen ? (
                 <View style={styles.socialList}>
-                  <Text style={styles.socialListTitle}>Saved by people you follow</Text>
+                  <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>
                   {socialSavers.length ? (
                     socialSavers.map((profile) => (
-                      <View key={profile.id} style={styles.socialRow}>
+                      <Pressable
+                        key={profile.id}
+                        style={styles.socialRow}
+                        onPress={() => router.push(`/user/${profile.id}`)}
+                      >
                         {profile.photoURL ? (
                           <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
                         ) : (
@@ -1177,7 +1183,7 @@ const reopenListModalRef = React.useRef(false);
                         <Pressable style={styles.socialInvite} accessibilityRole="button">
                           <FontAwesome name="paper-plane" size={16} color="#0f172a" />
                         </Pressable>
-                      </View>
+                      </Pressable>
                     ))
                   ) : (
                     <Text style={styles.sheetHint}>No friends have saved this yet.</Text>
