@@ -77,6 +77,7 @@ const usePlaceEngagement = (
   React.useEffect(() => {
     if (!pin) {
       setCounts({ wishlistCount: 0, favouriteCount: 0 })
+      setFriends({ wishlistFriend: null, favouriteFriend: null })
       return
     }
 
@@ -136,6 +137,9 @@ const usePlaceEngagement = (
 
   React.useEffect(() => {
     let active = true
+    if (pin) {
+      setFriends({ wishlistFriend: null, favouriteFriend: null })
+    }
     const load = async () => {
       if (!user?.uid || !pin) {
         if (active) {

@@ -2,6 +2,7 @@ import React from "react";
 import {
   Dimensions,
   FlatList,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -19,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
+import { collection, doc, getDoc, getDocs, query as firestoreQuery, where } from "firebase/firestore";
 import { searchNearbyPlace, searchNearbyPlaces, searchPlaceByText } from "../../shared/api/places";
 import {
   useSavedLists,
@@ -27,6 +29,10 @@ import {
   LIST_VISIBILITY_OPTIONS,
 } from "../../shared/context/savedLists";
 import PlaceSocialProof from "../../components/PlaceSocialProof";
+import { useAuth } from "../../shared/context/auth";
+import { firestore } from "../../shared/firebase/app";
+import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION } from "../../shared/api/users";
+import { PLACE_STATS_COLLECTION, PLACE_USER_SAVES_SUBCOLLECTION, placeIdFromPin } from "../../shared/utils/placeStats";
 
 const WORLD: Region = {
   latitude: 20,
@@ -84,6 +90,13 @@ type TenantCandidate = {
 
 type ListBucket = "none" | "wishlist" | "favourite";
 
+type SocialSaver = {
+  id: string;
+  displayName: string | null;
+  username: string | null;
+  photoURL: string | null;
+};
+
 const buildLabel = (place: any, fallback: string) => {
   if (!place) return fallback;
   const primary =
@@ -103,6 +116,7 @@ const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: num
 
 // Combines search, map camera control, and list-saving UX into the home screen.
 export default function MapScreen() {
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const mapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
@@ -137,6 +151,8 @@ export default function MapScreen() {
   const [tenantFloor, setTenantFloor] = React.useState<string | null>(null);
   const [tenantAnchor, setTenantAnchor] = React.useState<{ lat: number; lng: number } | null>(null);
   const tenantPickerHidden = sheetState === "expanded";
+  const [socialListOpen, setSocialListOpen] = React.useState(false);
+  const [socialSavers, setSocialSavers] = React.useState<SocialSaver[]>([]);
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
 const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
 const [newListModalVisible, setNewListModalVisible] = React.useState(false);
@@ -608,6 +624,68 @@ const reopenListModalRef = React.useRef(false);
     focusOn(tenant.lat, tenant.lng, { targetSheet: "half" });
   };
 
+  React.useEffect(() => {
+    const load = async () => {
+      if (!pin || !user?.uid) {
+        setSocialSavers([]);
+        return;
+      }
+      if (!socialListOpen && !pinSaveStatus) {
+        setSocialSavers([]);
+        return;
+      }
+      const placeId = placeIdFromPin(pin);
+      const followsSnapshot = await getDocs(
+        firestoreQuery(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid))
+      );
+      const followerSnapshot = await getDocs(
+        firestoreQuery(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", user.uid))
+      );
+      const followees = followsSnapshot.docs
+        .map((docSnap) => (docSnap.data() as { followeeId?: string }).followeeId)
+        .filter((id): id is string => Boolean(id));
+      const followers = followerSnapshot.docs
+        .map((docSnap) => (docSnap.data() as { followerId?: string }).followerId)
+        .filter((id): id is string => Boolean(id));
+      const orderedIds = [...followees, ...followers.filter((id) => !followees.includes(id))];
+      if (!orderedIds.length) {
+        setSocialSavers([]);
+        return;
+      }
+      const saveSnaps = await Promise.all(
+        orderedIds.map((id) =>
+          getDoc(doc(firestore, PLACE_STATS_COLLECTION, placeId, PLACE_USER_SAVES_SUBCOLLECTION, id))
+        )
+      );
+      const savedIds = orderedIds.filter((_, index) => saveSnaps[index].exists());
+      if (!savedIds.length) {
+        setSocialSavers([]);
+        return;
+      }
+      const profiles = await Promise.all(
+        savedIds.map(async (id) => {
+          const profileSnap = await getDoc(doc(firestore, USERS_COLLECTION, id));
+          const data = profileSnap.exists()
+            ? (profileSnap.data() as { displayName?: string | null; username?: string | null; photoURL?: string | null })
+            : {};
+          return {
+            id,
+            displayName: data.displayName ?? null,
+            username: data.username ?? null,
+            photoURL: data.photoURL ?? null,
+          } as SocialSaver;
+        })
+      );
+      const orderIndex = new Map(orderedIds.map((id, index) => [id, index]));
+      profiles.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+      setSocialSavers(profiles);
+    };
+    void load().catch((error) => {
+      console.warn("Failed to load social savers", error);
+      setSocialSavers([]);
+    });
+  }, [pin, pinSaveStatus, socialListOpen, user?.uid]);
+
   // Reset camera heading to north when the compass button is tapped.
   const handleCompassPress = React.useCallback(() => {
     if (!mapRef.current) return;
@@ -648,8 +726,15 @@ const reopenListModalRef = React.useRef(false);
       setSheetState("hidden");
       setPinSaveStatus(null);
       setBulkMovePrompt(null);
+      setSocialListOpen(false);
     }
   }, [pin]);
+
+  React.useEffect(() => {
+    if (pinSaveStatus === "wishlist") {
+      setSocialListOpen(true);
+    }
+  }, [pinSaveStatus]);
 
   React.useEffect(() => {
     if (!pin) return;
@@ -1031,14 +1116,17 @@ const reopenListModalRef = React.useRef(false);
 
           {!isSheetCollapsed && (
             <View style={styles.sheetActions}>
-              <View style={styles.socialProofBlock}>
+              <Pressable
+                onPress={() => setSocialListOpen(true)}
+                style={styles.socialProofBlock}
+              >
                 <PlaceSocialProof
                   pin={pin}
                   viewerBucket={pinSaveStatus}
                   transition={pinSaveTransition}
                   onTransitionSettled={() => setPinSaveTransition(null)}
                 />
-              </View>
+              </Pressable>
               <Pressable
                 onPress={() => {
                   setListModalVisible(true);
@@ -1063,10 +1151,41 @@ const reopenListModalRef = React.useRef(false);
 
           {(sheetState === "half" || sheetState === "expanded") && (
             <View style={styles.sheetBody}>
-              <Text style={styles.sheetMeta}>
-                Lat {pin.lat.toFixed(5)} · Lng {pin.lng.toFixed(5)}
-              </Text>
-              <Text style={styles.sheetHint}>Future recommendation details will appear here.</Text>
+              {socialListOpen ? (
+                <View style={styles.socialList}>
+                  <Text style={styles.socialListTitle}>Saved by people you follow</Text>
+                  {socialSavers.length ? (
+                    socialSavers.map((profile) => (
+                      <View key={profile.id} style={styles.socialRow}>
+                        {profile.photoURL ? (
+                          <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
+                        ) : (
+                          <View style={styles.socialAvatarFallback}>
+                            <Text style={styles.socialAvatarText}>
+                              {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.socialInfo}>
+                          <Text style={styles.socialName} numberOfLines={1}>
+                            {profile.displayName ?? "Unknown"}
+                          </Text>
+                          <Text style={styles.socialUsername} numberOfLines={1}>
+                            {profile.username ? `@${profile.username}` : ""}
+                          </Text>
+                        </View>
+                        <Pressable style={styles.socialInvite} accessibilityRole="button">
+                          <FontAwesome name="paper-plane" size={16} color="#0f172a" />
+                        </Pressable>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.sheetHint}>No friends have saved this yet.</Text>
+                  )}
+                </View>
+              ) : (
+                <Text style={styles.sheetHint}>Future recommendation details will appear here.</Text>
+              )}
             </View>
           )}
         </View>
@@ -1596,6 +1715,65 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#6b7280",
     lineHeight: 18,
+  },
+  socialList: {
+    marginTop: 12,
+    gap: 10,
+  },
+  socialListTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  socialRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: "#f8fafc",
+  },
+  socialAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#e2e8f0",
+  },
+  socialAvatarFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#e2e8f0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  socialAvatarText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  socialInfo: {
+    flex: 1,
+  },
+  socialName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  socialUsername: {
+    fontSize: 12,
+    color: "#94a3b8",
+  },
+  socialInvite: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e2e8f0",
   },
   modalBackdrop: {
     position: "absolute",
