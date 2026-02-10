@@ -277,17 +277,6 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return null;
   }, [user, isPublicRoute, onboardingComplete, onboardingLoading, isOnboardingRoute, initializing, pathname]);
 
-  React.useEffect(() => {
-    console.log("AuthGate state", {
-      initializing,
-      onboardingLoading,
-      redirectHref,
-      pathname,
-      user: user?.uid ?? null,
-      onboardingComplete,
-    });
-  }, [initializing, onboardingLoading, redirectHref, pathname, user, onboardingComplete]);
-
   const canNavigateToRedirect = React.useMemo(() => {
     if (!redirectHref || redirectHref === pathname) {
       return false;
