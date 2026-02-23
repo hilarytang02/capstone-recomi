@@ -22,7 +22,7 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { addDoc, collection, doc, getDoc, getDocs, query as firestoreQuery, serverTimestamp, where } from "firebase/firestore";
-import { searchNearbyPlace, searchNearbyPlaces, searchPlaceByText } from "../../shared/api/places";
+import { searchNearbyPlace, searchNearbyPlaces, searchPlaceAutocomplete, searchPlaceByText, type PlaceAutocompleteItem } from "../../shared/api/places";
 import {
   useSavedLists,
   type SavedEntry,
@@ -127,6 +127,9 @@ export default function MapScreen() {
   const [query, setQuery] = React.useState("");
   const searchInputRef = React.useRef<TextInput | null>(null);
   const [searchFocused, setSearchFocused] = React.useState(false);
+  const [searchSuggestions, setSearchSuggestions] = React.useState<PlaceAutocompleteItem[]>([]);
+  const [searchSuggesting, setSearchSuggesting] = React.useState(false);
+  const latestSuggestRequestRef = React.useRef(0);
   const [pin, setPin] = React.useState<PinData | null>(null);
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
@@ -159,12 +162,12 @@ export default function MapScreen() {
   const [inviteTarget, setInviteTarget] = React.useState<SocialSaver | null>(null);
   const [inviteMessage, setInviteMessage] = React.useState("");
   const [initialListStates, setInitialListStates] = React.useState<Record<string, ListBucket>>({});
-const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
-const [newListModalVisible, setNewListModalVisible] = React.useState(false);
-const [newListName, setNewListName] = React.useState("");
-const [newListError, setNewListError] = React.useState<string | null>(null);
-const [newListVisibility, setNewListVisibility] = React.useState<SavedListDefinition["visibility"]>("public");
-const reopenListModalRef = React.useRef(false);
+  const [pendingListStates, setPendingListStates] = React.useState<Record<string, ListBucket>>({});
+  const [newListModalVisible, setNewListModalVisible] = React.useState(false);
+  const [newListName, setNewListName] = React.useState("");
+  const [newListError, setNewListError] = React.useState<string | null>(null);
+  const [newListVisibility, setNewListVisibility] = React.useState<SavedListDefinition["visibility"]>("public");
+  const reopenListModalRef = React.useRef(false);
 
   const locationLabel = pin?.label ?? "this place";
   const bulkMoveListNames = React.useMemo(() => {
@@ -455,6 +458,8 @@ const reopenListModalRef = React.useRef(false);
   // Text search entry point that geocodes arbitrary strings into pins.
   const handleSubmit = async (raw?: string) => {
     const trimmed = (raw ?? query).trim();
+    setSearchSuggestions([]);
+    setSearchSuggesting(false);
     if (!trimmed) {
       setPin(null);
       setSheetState("hidden");
@@ -1015,12 +1020,48 @@ const reopenListModalRef = React.useRef(false);
 
   const handleCancelSearch = React.useCallback(() => {
     setQuery("");
+    setSearchSuggestions([]);
     setSearchFocused(false);
     dismissKeyboard();
   }, [dismissKeyboard]);
+
+  React.useEffect(() => {
+    if (!searchFocused) {
+      setSearchSuggestions([]);
+      setSearchSuggesting(false);
+      return;
+    }
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setSearchSuggestions([]);
+      setSearchSuggesting(false);
+      return;
+    }
+    const requestId = ++latestSuggestRequestRef.current;
+    setSearchSuggesting(true);
+    const timer = setTimeout(() => {
+      const location = userCoords ? { lat: userCoords.latitude, lng: userCoords.longitude } : undefined;
+      searchPlaceAutocomplete({ input: trimmed, location })
+        .then((results) => {
+          if (latestSuggestRequestRef.current !== requestId) return;
+          setSearchSuggestions(results);
+        })
+        .catch(() => {
+          if (latestSuggestRequestRef.current !== requestId) return;
+          setSearchSuggestions([]);
+        })
+        .finally(() => {
+          if (latestSuggestRequestRef.current !== requestId) return;
+          setSearchSuggesting(false);
+        });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query, searchFocused, userCoords]);
   const sheetHeight = SHEET_HEIGHTS[sheetState];
   const isSheetExpanded = sheetState === "expanded";
   const isSheetCollapsed = sheetState === "collapsed";
+  const showSuggestions =
+    showSearchBar && searchFocused && (searchSuggestions.length > 0 || searchSuggesting);
   return (
     <View style={styles.container}>
       <MapView
@@ -1083,6 +1124,45 @@ const reopenListModalRef = React.useRef(false);
               <Text style={styles.searchCancelLabel}>Cancel</Text>
             </Pressable>
           )}
+        </View>
+      )}
+      {showSuggestions && (
+        <View style={[styles.searchSuggestions, { top: insets.top + 16 + 52 }]}>
+          <FlatList
+            data={searchSuggestions}
+            keyExtractor={(item) => item.placeId}
+            keyboardShouldPersistTaps="always"
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => {
+                  setQuery(item.text);
+                  dismissKeyboard();
+                  setSearchFocused(false);
+                  void handleSubmit(item.text);
+                }}
+                style={styles.searchSuggestionRow}
+              >
+                <View style={styles.searchSuggestionText}>
+                  <Text style={styles.searchSuggestionPrimary} numberOfLines={1}>
+                    {item.primaryText}
+                  </Text>
+                  {item.secondaryText ? (
+                    <Text style={styles.searchSuggestionSecondary} numberOfLines={1}>
+                      {item.secondaryText}
+                    </Text>
+                  ) : null}
+                </View>
+              </Pressable>
+            )}
+            ListEmptyComponent={
+              searchSuggesting ? (
+                <View style={styles.searchSuggestionEmpty}>
+                  <Text style={styles.searchSuggestionEmptyText}>Searching...</Text>
+                </View>
+              ) : null
+            }
+          />
+          <Text style={styles.searchSuggestionFooter}>Powered by Google</Text>
         </View>
       )}
 
@@ -1623,6 +1703,57 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: "#0f172a",
+  },
+  searchSuggestions: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    maxHeight: 260,
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 6,
+    zIndex: 9,
+    overflow: "hidden",
+  },
+  searchSuggestionRow: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  searchSuggestionText: {
+    flex: 1,
+  },
+  searchSuggestionPrimary: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  searchSuggestionSecondary: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 2,
+  },
+  searchSuggestionEmpty: {
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  searchSuggestionEmptyText: {
+    fontSize: 12,
+    color: "#94a3b8",
+  },
+  searchSuggestionFooter: {
+    fontSize: 10,
+    color: "#94a3b8",
+    textAlign: "right",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#f8fafc",
   },
   recenter: {
     position: "absolute",

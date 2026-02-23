@@ -1,6 +1,8 @@
 const PLACES_SEARCH_TEXT_URL = "https://places.googleapis.com/v1/places:searchText";
 const PLACES_SEARCH_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby";
+const PLACES_AUTOCOMPLETE_URL = "https://places.googleapis.com/v1/places:autocomplete";
 const DEFAULT_RADIUS_METERS = 30;
+const DEFAULT_AUTOCOMPLETE_RADIUS_METERS = 50000;
 
 const getPlacesApiKey = () => process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
@@ -20,6 +22,14 @@ export type PlaceCandidate = {
   types?: string[];
   addressComponents?: AddressComponent[];
   formattedAddress?: string;
+};
+
+export type PlaceAutocompleteItem = {
+  placeId: string;
+  text: string;
+  primaryText: string;
+  secondaryText: string | null;
+  distanceMeters?: number;
 };
 
 const mapCandidate = (place?: {
@@ -181,4 +191,79 @@ export async function searchNearbyPlaces(
     }>;
   };
   return (data.places ?? []).map(mapCandidate).filter(Boolean) as PlaceCandidate[];
+}
+
+export async function searchPlaceAutocomplete({
+  input,
+  location,
+}: {
+  input: string;
+  location?: { lat: number; lng: number };
+}): Promise<PlaceAutocompleteItem[]> {
+  const apiKey = getPlacesApiKey();
+  if (!apiKey || !input.trim()) return [];
+
+  const body: Record<string, unknown> = {
+    input: input.trim(),
+  };
+
+  if (location) {
+    body.locationBias = {
+      circle: {
+        center: {
+          latitude: location.lat,
+          longitude: location.lng,
+        },
+        radius: DEFAULT_AUTOCOMPLETE_RADIUS_METERS,
+      },
+    };
+    body.origin = {
+      latitude: location.lat,
+      longitude: location.lng,
+    };
+  }
+
+  const response = await fetch(PLACES_AUTOCOMPLETE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": apiKey,
+      "X-Goog-FieldMask":
+        "suggestions.placePrediction.placeId,suggestions.placePrediction.text.text,suggestions.placePrediction.structuredFormat.mainText.text,suggestions.placePrediction.structuredFormat.secondaryText.text,suggestions.placePrediction.distanceMeters",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) return [];
+
+  const data = (await response.json()) as {
+    suggestions?: Array<{
+      placePrediction?: {
+        placeId?: string;
+        text?: { text?: string };
+        structuredFormat?: {
+          mainText?: { text?: string };
+          secondaryText?: { text?: string };
+        };
+        distanceMeters?: number;
+      };
+    }>;
+  };
+
+  return (data.suggestions ?? [])
+    .map((suggestion) => {
+      const prediction = suggestion.placePrediction;
+      if (!prediction?.placeId) return null;
+      const text = prediction.text?.text ?? "";
+      const primaryText = prediction.structuredFormat?.mainText?.text ?? text;
+      const secondaryText = prediction.structuredFormat?.secondaryText?.text ?? null;
+      return {
+        placeId: prediction.placeId,
+        text: text || primaryText,
+        primaryText,
+        secondaryText,
+        distanceMeters: prediction.distanceMeters,
+      } as PlaceAutocompleteItem;
+    })
+    .filter(Boolean) as PlaceAutocompleteItem[];
 }
