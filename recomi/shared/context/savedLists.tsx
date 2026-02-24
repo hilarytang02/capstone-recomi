@@ -79,6 +79,7 @@ type SavedListsContextValue = {
   removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
   addList: (name: string, visibility?: SavedListDefinition["visibility"]) => SavedListDefinition
   removeList: (listId: string) => void
+  updateListCover: (listId: string, coverImage: string | null) => void
   likeList: (liked: LikedListRef) => void
   unlikeList: (ownerId: string, listId: string) => void
   setLikedListsVisibility: (visible: boolean) => void
@@ -374,6 +375,19 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [persist]
   )
 
+  const updateListCover = React.useCallback(
+    (listId: string, coverImage: string | null) => {
+      setLists((prev) => {
+        const updated = prev.map((list) =>
+          list.id === listId ? { ...list, coverImage: coverImage ?? undefined } : list
+        )
+        void persist(updated, entries)
+        return updated
+      })
+    },
+    [entries, persist]
+  )
+
   const [mapFocusEntry, setMapFocusEntry] = React.useState<SavedEntry | null>(null)
 
   // Let map consumers know which entry should be highlighted.
@@ -436,6 +450,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       removeEntry,
       addList,
       removeList,
+      updateListCover,
       likedLists,
       likedListsVisible,
       likeList,
@@ -453,6 +468,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       removeEntry,
       addList,
       removeList,
+      updateListCover,
       likedLists,
       likedListsVisible,
       likeList,

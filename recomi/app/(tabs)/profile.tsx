@@ -108,6 +108,8 @@ export default function ProfileScreen() {
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
   const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
   const [selfProfile, setSelfProfile] = React.useState<UserDocument | null>(null);
+  const [listPickerOpen, setListPickerOpen] = React.useState(false);
+  const [listSearch, setListSearch] = React.useState("");
   const [friendsCount, setFriendsCount] = React.useState(0);
   const handleOpenAccountEditor = React.useCallback(() => {
     router.push("/(tabs)/profile-edit");
@@ -188,6 +190,33 @@ export default function ProfileScreen() {
 
   const [selectedListId, setSelectedListId] = React.useState(
     lists[0]?.id ?? null,
+  );
+
+  const listStats = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    const recency = new Map<string, number>();
+    entries.forEach((entry) => {
+      counts.set(entry.listId, (counts.get(entry.listId) ?? 0) + 1);
+      const last = recency.get(entry.listId) ?? 0;
+      if (entry.savedAt > last) {
+        recency.set(entry.listId, entry.savedAt);
+      }
+    });
+    return { counts, recency };
+  }, [entries]);
+
+  const MAX_VISIBLE_LISTS = 6;
+  const sortedLists = React.useMemo(() => {
+    return [...lists].sort((a, b) => {
+      const aRecency = listStats.recency.get(a.id) ?? 0;
+      const bRecency = listStats.recency.get(b.id) ?? 0;
+      if (aRecency === bRecency) return a.name.localeCompare(b.name);
+      return bRecency - aRecency;
+    });
+  }, [lists, listStats.recency]);
+  const visibleLists = React.useMemo(
+    () => sortedLists.slice(0, MAX_VISIBLE_LISTS),
+    [sortedLists],
   );
 
   React.useEffect(() => {
@@ -351,6 +380,7 @@ export default function ProfileScreen() {
     },
     [deleteMode, focusEntryRegion, isEditing],
   );
+
 
   const handleSignOut = React.useCallback(async () => {
     try {
@@ -553,11 +583,11 @@ export default function ProfileScreen() {
               <View style={styles.metricsRow}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricValue}>{wishlistCount}</Text>
-                  <Text style={styles.metricLabel}>Want to go</Text>
+                  <Text style={styles.metricLabel}>To try</Text>
                 </View>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricValue}>{favouriteCount}</Text>
-                  <Text style={styles.metricLabel}>Favourites</Text>
+                  <Text style={styles.metricLabel}>Loved</Text>
                 </View>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricValue}>{friendsCount}</Text>
@@ -582,15 +612,34 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <FlatList<GroupedList>
+        <FlatList<SavedListDefinition>
           ref={galleryRef}
           horizontal
-          data={grouped}
-          keyExtractor={(item) => item.definition.id}
+          data={visibleLists}
+          keyExtractor={(item) => item.id}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.gallery}
           extraData={{ selectedListId, deleteMode }}
-          ListFooterComponent={hasLists ? () => <NewListButton /> : undefined}
+          ListFooterComponent={
+            hasLists
+              ? () => (
+                  <View style={styles.galleryFooterRow}>
+                    {lists.length > MAX_VISIBLE_LISTS ? (
+                      <Pressable
+                        style={styles.galleryAllButton}
+                        onPress={() => {
+                          setListSearch("");
+                          setListPickerOpen(true);
+                        }}
+                      >
+                        <Text style={styles.galleryAllLabel}>All lists</Text>
+                      </Pressable>
+                    ) : null}
+                    <NewListButton />
+                  </View>
+                )
+              : undefined
+          }
           ListFooterComponentStyle={styles.galleryFooter}
           ListEmptyComponent={() => (
             <View style={styles.emptyLists}>
@@ -598,9 +647,9 @@ export default function ProfileScreen() {
               <NewListButton variant="empty" />
             </View>
           )}
-          renderItem={({ item }: { item: GroupedList }) => {
-            const total = item.wishlist.length + item.favourite.length;
-            const isSelected = item.definition.id === selectedListId;
+          renderItem={({ item }: { item: SavedListDefinition }) => {
+            const total = listStats.counts.get(item.id) ?? 0;
+            const isSelected = item.id === selectedListId;
             const cardWiggleStyle = deleteMode
               ? {
                   transform: [
@@ -617,14 +666,14 @@ export default function ProfileScreen() {
             const promptRemoval = () => {
               Alert.alert(
                 'Remove list?',
-                `Are you sure you want to remove "${item.definition.name}"?`,
+                `Are you sure you want to remove "${item.name}"?`,
                 [
                   { text: 'Cancel', style: 'cancel' },
                   {
                     text: 'Remove',
                     style: 'destructive',
                     onPress: () => {
-                      removeList(item.definition.id);
+                      removeList(item.id);
                       setDeleteMode(false);
                     },
                   },
@@ -645,13 +694,13 @@ export default function ProfileScreen() {
                       setIsEditing(false);
                       setPendingRemovals({});
                     }
-                    setSelectedListId(item.definition.id);
+                    setSelectedListId(item.id);
                   }}
                   onLongPress={() => {
                     setDeleteMode(true);
                     setIsEditing(false);
                     setPendingRemovals({});
-                    setSelectedListId(item.definition.id);
+                    setSelectedListId(item.id);
                   }}
                   delayLongPress={250}
                 >
@@ -667,33 +716,23 @@ export default function ProfileScreen() {
                       <Text style={styles.deleteBadgeText}>−</Text>
                     </Pressable>
                   )}
-                  <View style={styles.galleryTitleWrapper}>
-                    <Text
-                      style={styles.galleryTitle}
-                      numberOfLines={2}
-                      ellipsizeMode="tail"
-                    >
-                      {item.definition.name}
+                  <View style={styles.listChipRow}>
+                    <View style={styles.listChipAvatar}>
+                      {item.coverImage ? (
+                        <Image source={{ uri: item.coverImage }} style={styles.listChipAvatarImage} />
+                      ) : (
+                        <View style={styles.listChipAvatarFallback}>
+                          <Text style={styles.listChipAvatarInitial}>
+                            {item.name.slice(0, 1).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.listChipTitle} numberOfLines={1} ellipsizeMode="tail">
+                      {item.name}
                     </Text>
-                  </View>
-                  <View style={styles.galleryMeta}>
-                    <Text style={styles.galleryCount}>{total} saved places</Text>
-                    <View
-                      style={[
-                        styles.visibilityTag,
-                        item.definition.visibility === 'public'
-                          ? styles.visibilityTagPublic
-                          : item.definition.visibility === 'followers'
-                          ? styles.visibilityTagFollowers
-                          : styles.visibilityTagPrivate,
-                      ]}
-                    >
-                      <Text style={styles.visibilityTagLabel}>
-                        {
-                          LIST_VISIBILITY_OPTIONS.find((opt) => opt.value === item.definition.visibility)
-                            ?.label ?? 'Public'
-                        }
-                      </Text>
+                    <View style={styles.listChipCount}>
+                      <Text style={styles.listChipCountText}>{total}</Text>
                     </View>
                   </View>
                 </Pressable>
@@ -902,6 +941,75 @@ export default function ProfileScreen() {
           )}
         </View>
       </ScrollView>
+
+      <Modal
+        visible={listPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setListPickerOpen(false)}
+      >
+        <View style={styles.listPickerOverlay}>
+          <View style={styles.listPickerSheet}>
+            <View style={styles.listPickerHeader}>
+              <Text style={styles.listPickerTitle}>All lists</Text>
+              <Pressable onPress={() => setListPickerOpen(false)} hitSlop={8}>
+                <Text style={styles.listPickerClose}>Close</Text>
+              </Pressable>
+            </View>
+            <View style={styles.listPickerSearchWrap}>
+              <TextInput
+                value={listSearch}
+                onChangeText={setListSearch}
+                placeholder="Search lists"
+                style={styles.listPickerSearchInput}
+              />
+            </View>
+            <FlatList
+              data={sortedLists.filter((list) =>
+                list.name.toLowerCase().includes(listSearch.trim().toLowerCase())
+              )}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listPickerList}
+              renderItem={({ item }) => {
+                const total = listStats.counts.get(item.id) ?? 0;
+                const isSelected = item.id === selectedListId;
+                return (
+                  <Pressable
+                    style={[styles.listPickerRow, isSelected && styles.listPickerRowActive]}
+                    onPress={() => {
+                      setSelectedListId(item.id);
+                      setListPickerOpen(false);
+                    }}
+                  >
+                    <View style={styles.listPickerAvatar}>
+                      {item.coverImage ? (
+                        <Image source={{ uri: item.coverImage }} style={styles.listPickerAvatarImage} />
+                      ) : (
+                        <View style={styles.listPickerAvatarFallback}>
+                          <Text style={styles.listPickerAvatarInitial}>
+                            {item.name.slice(0, 1).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.listPickerText}>
+                      <Text style={styles.listPickerName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.listPickerMeta}>{total} places</Text>
+                    </View>
+                  </Pressable>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={styles.listPickerEmpty}>
+                  <Text style={styles.listPickerEmptyText}>No lists found.</Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
 
       <PinDetailSheet entry={activePinEntry} onClose={closeActivePinSheet} bottomInset={insets.bottom} />
 
@@ -1237,71 +1345,212 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   gallery: {
-    gap: 12,
-    paddingVertical: 8,
+    gap: 10,
+    paddingVertical: 6,
   },
   galleryFooter: {
     paddingRight: 12,
+  },
+  galleryFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  galleryAllButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  galleryAllLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0f172a',
   },
   galleryCardWrapper: {
     position: 'relative',
   },
   galleryCard: {
-    width: 200,
-    padding: 16,
+    width: 160,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 16,
-    backgroundColor: '#e2e8f0',
-    minHeight: 130,
-    justifyContent: 'space-between',
+    backgroundColor: '#ffffff',
+    minHeight: 56,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   galleryCardSelected: {
-    backgroundColor: '#c7d2fe',
+    borderColor: '#c7d2fe',
+    backgroundColor: '#f8faff',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
   },
-  galleryTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0f172a',
-    lineHeight: 20,
-  },
-  galleryTitleWrapper: {
-    minHeight: 44,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-  },
-  galleryCount: {
-    marginTop: 4,
-    fontSize: 12,
-    color: '#475569',
-  },
-  galleryMeta: {
-    marginTop: 8,
+  listChipRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
   },
-  visibilityTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+  listChipAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  visibilityTagPrivate: {
-    backgroundColor: '#e2e8f0',
+  listChipAvatarImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
-  visibilityTagFollowers: {
-    backgroundColor: '#fcd34d',
+  listChipAvatarFallback: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  visibilityTagPublic: {
-    backgroundColor: '#bbf7d0',
+  listChipAvatarInitial: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
   },
-  visibilityTagLabel: {
-    fontSize: 11,
+  listChipTitle: {
+    flex: 1,
+    fontSize: 13,
     fontWeight: '600',
     color: '#0f172a',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+  },
+  listChipCount: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    backgroundColor: '#e2e8f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listChipCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  listPickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.35)',
+    justifyContent: 'flex-end',
+  },
+  listPickerSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    maxHeight: '75%',
+  },
+  listPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  listPickerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  listPickerClose: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  listPickerSearchWrap: {
+    marginBottom: 12,
+  },
+  listPickerSearchInput: {
+    height: 40,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  listPickerList: {
+    paddingBottom: 24,
+    gap: 8,
+  },
+  listPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  listPickerRowActive: {
+    backgroundColor: '#f1f5f9',
+  },
+  listPickerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listPickerAvatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  listPickerAvatarFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listPickerAvatarInitial: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  listPickerText: {
+    flex: 1,
+    gap: 2,
+  },
+  listPickerName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  listPickerMeta: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  listPickerEmpty: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  listPickerEmptyText: {
+    fontSize: 12,
+    color: '#94a3b8',
   },
   galleryAddCard: {
     width: 140,
