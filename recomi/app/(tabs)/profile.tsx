@@ -194,15 +194,23 @@ export default function ProfileScreen() {
 
   const listStats = React.useMemo(() => {
     const counts = new Map<string, number>();
+    const wishlistCounts = new Map<string, number>();
+    const favouriteCounts = new Map<string, number>();
     const recency = new Map<string, number>();
     entries.forEach((entry) => {
       counts.set(entry.listId, (counts.get(entry.listId) ?? 0) + 1);
+      if (entry.bucket === "wishlist") {
+        wishlistCounts.set(entry.listId, (wishlistCounts.get(entry.listId) ?? 0) + 1);
+      }
+      if (entry.bucket === "favourite") {
+        favouriteCounts.set(entry.listId, (favouriteCounts.get(entry.listId) ?? 0) + 1);
+      }
       const last = recency.get(entry.listId) ?? 0;
       if (entry.savedAt > last) {
         recency.set(entry.listId, entry.savedAt);
       }
     });
-    return { counts, recency };
+    return { counts, wishlistCounts, favouriteCounts, recency };
   }, [entries]);
 
   const MAX_VISIBLE_LISTS = 6;
@@ -329,7 +337,7 @@ export default function ProfileScreen() {
   const NewListButton = ({ variant = "card" }: { variant?: "card" | "empty" }) => {
     const containerStyles =
       variant === "card"
-        ? [styles.galleryAddCard, deleteMode && styles.galleryAddDisabled]
+        ? [styles.galleryAddCompact, deleteMode && styles.galleryAddDisabled]
         : [styles.galleryAddCardEmpty, deleteMode && styles.galleryAddDisabled];
 
     return (
@@ -340,10 +348,7 @@ export default function ProfileScreen() {
         accessibilityLabel="Create a new list"
         disabled={deleteMode}
       >
-        <View style={styles.galleryAddCircle}>
-          <FontAwesome name="plus" size={18} color="#0f172a" />
-        </View>
-        <Text style={styles.galleryAddLabel}>New</Text>
+        <Text style={styles.galleryAddPlus}>+</Text>
       </Pressable>
     );
   };
@@ -583,11 +588,11 @@ export default function ProfileScreen() {
               <View style={styles.metricsRow}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricValue}>{wishlistCount}</Text>
-                  <Text style={styles.metricLabel}>To try</Text>
+                  <Text style={styles.metricLabel}>Wishlist</Text>
                 </View>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricValue}>{favouriteCount}</Text>
-                  <Text style={styles.metricLabel}>Loved</Text>
+                  <Text style={styles.metricLabel}>Favourite</Text>
                 </View>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricValue}>{friendsCount}</Text>
@@ -615,6 +620,7 @@ export default function ProfileScreen() {
         <FlatList<SavedListDefinition>
           ref={galleryRef}
           horizontal
+          ListHeaderComponent={<NewListButton />}
           data={visibleLists}
           keyExtractor={(item) => item.id}
           showsHorizontalScrollIndicator={false}
@@ -626,16 +632,18 @@ export default function ProfileScreen() {
                   <View style={styles.galleryFooterRow}>
                     {lists.length > MAX_VISIBLE_LISTS ? (
                       <Pressable
-                        style={styles.galleryAllButton}
+                        style={styles.galleryAllChip}
                         onPress={() => {
                           setListSearch("");
                           setListPickerOpen(true);
                         }}
                       >
-                        <Text style={styles.galleryAllLabel}>All lists</Text>
+                        <Text style={styles.galleryAllChipLabel}>All</Text>
+                        <View style={styles.galleryAllChipCount}>
+                          <Text style={styles.galleryAllChipCountText}>{lists.length}</Text>
+                        </View>
                       </Pressable>
                     ) : null}
-                    <NewListButton />
                   </View>
                 )
               : undefined
@@ -717,17 +725,6 @@ export default function ProfileScreen() {
                     </Pressable>
                   )}
                   <View style={styles.listChipRow}>
-                    <View style={styles.listChipAvatar}>
-                      {item.coverImage ? (
-                        <Image source={{ uri: item.coverImage }} style={styles.listChipAvatarImage} />
-                      ) : (
-                        <View style={styles.listChipAvatarFallback}>
-                          <Text style={styles.listChipAvatarInitial}>
-                            {item.name.slice(0, 1).toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
                     <Text style={styles.listChipTitle} numberOfLines={1} ellipsizeMode="tail">
                       {item.name}
                     </Text>
@@ -972,6 +969,8 @@ export default function ProfileScreen() {
               contentContainerStyle={styles.listPickerList}
               renderItem={({ item }) => {
                 const total = listStats.counts.get(item.id) ?? 0;
+                const wishlist = listStats.wishlistCounts.get(item.id) ?? 0;
+                const favourite = listStats.favouriteCounts.get(item.id) ?? 0;
                 const isSelected = item.id === selectedListId;
                 return (
                   <Pressable
@@ -981,22 +980,16 @@ export default function ProfileScreen() {
                       setListPickerOpen(false);
                     }}
                   >
-                    <View style={styles.listPickerAvatar}>
-                      {item.coverImage ? (
-                        <Image source={{ uri: item.coverImage }} style={styles.listPickerAvatarImage} />
-                      ) : (
-                        <View style={styles.listPickerAvatarFallback}>
-                          <Text style={styles.listPickerAvatarInitial}>
-                            {item.name.slice(0, 1).toUpperCase()}
-                          </Text>
-                        </View>
-                      )}
+                    <View style={styles.listPickerIcon}>
+                      <FontAwesome name="bookmark" size={14} color="#94a3b8" />
                     </View>
                     <View style={styles.listPickerText}>
                       <Text style={styles.listPickerName} numberOfLines={1}>
                         {item.name}
                       </Text>
-                      <Text style={styles.listPickerMeta}>{total} places</Text>
+                      <Text style={styles.listPickerMetaText}>
+                        {total} places • {wishlist} wishlist • {favourite} favourite
+                      </Text>
                     </View>
                   </Pressable>
                 );
@@ -1356,20 +1349,52 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  galleryAllButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: '#f1f5f9',
+  galleryAllChip: {
+    height: 50,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#cbd5f5',
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  galleryAllChipLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  galleryAllChipCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: '#eef2ff',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  galleryAllLabel: {
-    fontSize: 12,
+  galleryAllChipCountText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#4338ca',
+  },
+  galleryAddCompact: {
+    width: 68,
+    height: 50,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#cbd5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  galleryAddPlus: {
+    fontSize: 20,
     fontWeight: '600',
-    color: '#0f172a',
+    color: '#64748b',
   },
   galleryCardWrapper: {
     position: 'relative',
@@ -1377,10 +1402,10 @@ const styles = StyleSheet.create({
   galleryCard: {
     width: 160,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: 16,
     backgroundColor: '#ffffff',
-    minHeight: 56,
+    minHeight: 50,
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -1388,6 +1413,8 @@ const styles = StyleSheet.create({
   galleryCardSelected: {
     borderColor: '#c7d2fe',
     backgroundColor: '#f8faff',
+    borderBottomWidth: 2,
+    borderBottomColor: '#818cf8',
     shadowColor: '#0f172a',
     shadowOpacity: 0.08,
     shadowRadius: 10,
@@ -1399,53 +1426,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  listChipAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  listChipAvatarImage: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-  },
-  listChipAvatarFallback: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  listChipAvatarInitial: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
-  },
   listChipTitle: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: '#0f172a',
   },
   listChipCount: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    backgroundColor: '#e2e8f0',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   listChipCountText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
-    color: '#0f172a',
+    color: '#475569',
   },
   listPickerOverlay: {
     flex: 1,
@@ -1503,7 +1502,7 @@ const styles = StyleSheet.create({
   listPickerRowActive: {
     backgroundColor: '#f1f5f9',
   },
-  listPickerAvatar: {
+  listPickerIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -1512,24 +1511,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  listPickerAvatarImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  listPickerAvatarFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  listPickerAvatarInitial: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748b',
   },
   listPickerText: {
     flex: 1,
@@ -1540,7 +1521,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0f172a',
   },
-  listPickerMeta: {
+  listPickerMetaText: {
     fontSize: 12,
     color: '#64748b',
   },
@@ -1572,24 +1553,6 @@ const styles = StyleSheet.create({
   },
   galleryAddDisabled: {
     opacity: 0.4,
-  },
-  galleryAddCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: '#0f172a',
-    backgroundColor: '#f8fafc',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  galleryAddLabel: {
-    marginTop: 10,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0f172a',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
   },
   deleteBadge: {
     position: 'absolute',
