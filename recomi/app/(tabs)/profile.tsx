@@ -31,9 +31,9 @@ import {
 import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "../../components/PinDetailSheet";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { firestore } from "../../shared/firebase/app";
-import { USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
+import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
 
 type GroupedList = {
   definition: SavedListDefinition;
@@ -108,6 +108,7 @@ export default function ProfileScreen() {
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
   const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
   const [selfProfile, setSelfProfile] = React.useState<UserDocument | null>(null);
+  const [friendsCount, setFriendsCount] = React.useState(0);
   const handleOpenAccountEditor = React.useCallback(() => {
     router.push("/(tabs)/profile-edit");
   }, [router]);
@@ -132,10 +133,46 @@ export default function ProfileScreen() {
     return unsubscribe;
   }, [user?.uid]);
 
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setFriendsCount(0);
+      return;
+    }
+    const loadFriends = async () => {
+      const followersSnap = await getDocs(
+        query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", user.uid))
+      );
+      const followeesSnap = await getDocs(
+        query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid))
+      );
+      const followers = new Set(
+        followersSnap.docs
+          .map((docSnap) => (docSnap.data() as { followerId?: string }).followerId)
+          .filter((id): id is string => Boolean(id))
+      );
+      const followees = new Set(
+        followeesSnap.docs
+          .map((docSnap) => (docSnap.data() as { followeeId?: string }).followeeId)
+          .filter((id): id is string => Boolean(id))
+      );
+      let mutual = 0;
+      followers.forEach((id) => {
+        if (followees.has(id)) mutual += 1;
+      });
+      setFriendsCount(mutual);
+    };
+    void loadFriends().catch((error) => {
+      console.warn("Failed to load friends count", error);
+      setFriendsCount(0);
+    });
+  }, [user?.uid]);
+
   const profileDisplayName = selfProfile?.displayName ?? user?.displayName ?? "Your profile";
   const profileUsername = selfProfile?.username ?? null;
   const profileBio = selfProfile?.bio ?? null;
   const profilePhoto = selfProfile?.photoURL ?? user?.photoURL ?? null;
+  const wishlistCount = entries.filter((entry) => entry.bucket === "wishlist").length;
+  const favouriteCount = entries.filter((entry) => entry.bucket === "favourite").length;
 
   // Build gallery-friendly groups so wishlist/favourite pins stay paired with their list definition.
   const grouped = React.useMemo<GroupedList[]>(() => {
@@ -485,6 +522,20 @@ export default function ProfileScreen() {
         ]}
       >
         <View style={styles.profileHeader}>
+          <Pressable
+            style={styles.signOutAction}
+            onPress={handleSignOut}
+            disabled={signingOut}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+            hitSlop={12}
+          >
+            {signingOut ? (
+              <ActivityIndicator size="small" color="#0f172a" />
+            ) : (
+              <FontAwesome name="sign-out" size={16} color="#475569" />
+            )}
+          </Pressable>
           <View style={styles.profileInfoRow}>
             {profilePhoto ? (
               <Image source={{ uri: profilePhoto }} style={styles.profileAvatar} />
@@ -495,36 +546,39 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             )}
-            <View style={styles.profileTextBlock}>
-              <Text style={styles.profileName}>{profileDisplayName}</Text>
+            <View style={styles.profileMetricsBlock}>
               {profileUsername ? (
                 <Text style={styles.profileUsername}>@{profileUsername}</Text>
               ) : null}
-              {profileBio ? <Text style={styles.profileBio}>{profileBio}</Text> : null}
+              <View style={styles.metricsRow}>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricValue}>{wishlistCount}</Text>
+                  <Text style={styles.metricLabel}>Want to go</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricValue}>{favouriteCount}</Text>
+                  <Text style={styles.metricLabel}>Favourites</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricValue}>{friendsCount}</Text>
+                  <Text style={styles.metricLabel}>Friends</Text>
+                </View>
+              </View>
             </View>
           </View>
-          <View style={styles.profileActions}>
-            <Pressable
-              style={styles.editAccountButton}
-              onPress={handleOpenAccountEditor}
-              accessibilityRole="button"
-              accessibilityLabel="Edit account"
-            >
-              <Text style={styles.editAccountLabel}>Edit account</Text>
-            </Pressable>
-            <Pressable
-              style={styles.signOutButton}
-              onPress={handleSignOut}
-              disabled={signingOut}
-              accessibilityRole="button"
-              accessibilityLabel="Sign out"
-            >
-              {signingOut ? (
-                <ActivityIndicator size="small" color="#0f172a" />
-              ) : (
-                <Text style={styles.signOutLabel}>Sign out</Text>
-              )}
-            </Pressable>
+          <View style={styles.profileDetails}>
+            <Text style={styles.profileName}>{profileDisplayName}</Text>
+            {profileBio ? <Text style={styles.profileBio}>{profileBio}</Text> : null}
+            <View style={styles.profileActions}>
+              <Pressable
+                style={styles.editAccountButton}
+                onPress={handleOpenAccountEditor}
+                accessibilityRole="button"
+                accessibilityLabel="Edit profile"
+              >
+                <Text style={styles.editAccountLabel}>Edit profile</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
 
@@ -1067,40 +1121,45 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   profileHeader: {
+    gap: 16,
+    position: 'relative',
+  },
+  signOutAction: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
+    gap: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
   },
   profileInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    flex: 1,
-  },
-  profileActions: {
-    alignItems: 'flex-end',
-    gap: 8,
+    gap: 16,
   },
   profileAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
   },
   profileAvatarPlaceholder: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#e2e8f0',
     alignItems: 'center',
     justifyContent: 'center',
   },
   profileAvatarInitial: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '700',
     color: '#475569',
   },
-  profileTextBlock: {
+  profileMetricsBlock: {
     flex: 1,
   },
   profileName: {
@@ -1110,28 +1169,52 @@ const styles = StyleSheet.create({
   },
   profileUsername: {
     fontSize: 14,
-    color: '#475569',
-    marginTop: 2,
-  },
-  profileEmail: {
-    fontSize: 13,
-    color: '#64748b',
+    color: '#94a3b8',
+    marginBottom: 8,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   profileBio: {
     fontSize: 14,
-    color: '#475569',
+    color: '#0f172a',
+    marginTop: 6,
+    lineHeight: 20,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    gap: 14,
+  },
+  metricItem: {
+    gap: 4,
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  metricLabel: {
+    fontSize: 11,
+    color: '#64748b',
+  },
+  profileDetails: {
+    gap: 8,
+  },
+  profileActions: {
+    flexDirection: 'row',
     marginTop: 4,
   },
   editAccountButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: 999,
-    backgroundColor: '#c7d2fe',
+    backgroundColor: '#0f172a',
   },
   editAccountLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#312e81',
+    color: '#ffffff',
   },
   title: {
     fontSize: 24,
@@ -1152,23 +1235,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#475569',
     marginBottom: 12,
-  },
-  profileEmail: {
-    fontSize: 13,
-    color: '#64748b',
-  },
-  signOutButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#cbd5f5',
-    backgroundColor: '#e2e8f0',
-  },
-  signOutLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0f172a',
   },
   gallery: {
     gap: 12,

@@ -188,7 +188,7 @@ export default function EditProfileScreen() {
         bio: bio.trim() ? bio.trim().slice(0, BIO_LIMIT) : null,
         photoURL: photoURL ?? null,
       });
-      router.back();
+      router.replace("/(tabs)/profile");
     } catch (err) {
       console.error("Failed to save profile", err);
       Alert.alert("Unable to save", "Please try again.");
@@ -230,7 +230,7 @@ export default function EditProfileScreen() {
       }}
     >
       <View style={styles.headerRow}>
-        <Pressable style={styles.backButton} onPress={() => router.back()} hitSlop={12}>
+        <Pressable style={styles.backButton} onPress={() => router.replace("/(tabs)/profile")} hitSlop={12}>
           <FontAwesome name="chevron-left" size={16} color="#0f172a" />
           <Text style={styles.backLabel}>Profile</Text>
         </Pressable>
