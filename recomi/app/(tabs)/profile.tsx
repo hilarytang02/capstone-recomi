@@ -31,7 +31,7 @@ import {
 import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "../../components/PinDetailSheet";
-import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { firestore } from "../../shared/firebase/app";
 import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
 
@@ -39,6 +39,13 @@ type GroupedList = {
   definition: SavedListDefinition;
   wishlist: SavedEntry[];
   favourite: SavedEntry[];
+};
+
+type ProfileLite = {
+  id: string;
+  displayName: string | null;
+  username: string | null;
+  photoURL: string | null;
 };
 
 const makeEntryKey = (entry: SavedEntry) =>
@@ -111,7 +118,11 @@ export default function ProfileScreen() {
   const [listPickerOpen, setListPickerOpen] = React.useState(false);
   const [listSearch, setListSearch] = React.useState("");
   const [activeProfileTab, setActiveProfileTab] = React.useState<"lists" | "liked">("lists");
-  const [friendsCount, setFriendsCount] = React.useState(0);
+  const [followModalOpen, setFollowModalOpen] = React.useState(false);
+  const [followModalTab, setFollowModalTab] = React.useState<"followers" | "following">("followers");
+  const [followersList, setFollowersList] = React.useState<ProfileLite[]>([]);
+  const [followingList, setFollowingList] = React.useState<ProfileLite[]>([]);
+  const [followLoading, setFollowLoading] = React.useState(false);
   const handleOpenAccountEditor = React.useCallback(() => {
     router.push("/(tabs)/profile-edit");
   }, [router]);
@@ -136,46 +147,38 @@ export default function ProfileScreen() {
     return unsubscribe;
   }, [user?.uid]);
 
-  React.useEffect(() => {
-    if (!user?.uid) {
-      setFriendsCount(0);
-      return;
-    }
-    const loadFriends = async () => {
-      const followersSnap = await getDocs(
-        query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", user.uid))
-      );
-      const followeesSnap = await getDocs(
-        query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid))
-      );
-      const followers = new Set(
-        followersSnap.docs
-          .map((docSnap) => (docSnap.data() as { followerId?: string }).followerId)
-          .filter((id): id is string => Boolean(id))
-      );
-      const followees = new Set(
-        followeesSnap.docs
-          .map((docSnap) => (docSnap.data() as { followeeId?: string }).followeeId)
-          .filter((id): id is string => Boolean(id))
-      );
-      let mutual = 0;
-      followers.forEach((id) => {
-        if (followees.has(id)) mutual += 1;
-      });
-      setFriendsCount(mutual);
-    };
-    void loadFriends().catch((error) => {
-      console.warn("Failed to load friends count", error);
-      setFriendsCount(0);
-    });
-  }, [user?.uid]);
-
   const profileDisplayName = selfProfile?.displayName ?? user?.displayName ?? "Your profile";
   const profileUsername = selfProfile?.username ?? null;
   const profileBio = selfProfile?.bio ?? null;
   const profilePhoto = selfProfile?.photoURL ?? user?.photoURL ?? null;
   const wishlistCount = entries.filter((entry) => entry.bucket === "wishlist").length;
   const favouriteCount = entries.filter((entry) => entry.bucket === "favourite").length;
+  const totalSavedCount = wishlistCount + favouriteCount;
+  const [followersCount, setFollowersCount] = React.useState(0);
+  const [followingCount, setFollowingCount] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!user?.uid) {
+      setFollowersCount(0);
+      setFollowingCount(0);
+      return;
+    }
+    const loadCounts = async () => {
+      const followersSnap = await getDocs(
+        query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", user.uid))
+      );
+      const followingSnap = await getDocs(
+        query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid))
+      );
+      setFollowersCount(followersSnap.size);
+      setFollowingCount(followingSnap.size);
+    };
+    void loadCounts().catch((error) => {
+      console.warn("Failed to load follow counts", error);
+      setFollowersCount(selfProfile?.followersCount ?? 0);
+      setFollowingCount(selfProfile?.followingCount ?? 0);
+    });
+  }, [selfProfile?.followersCount, selfProfile?.followingCount, user?.uid]);
 
   // Build gallery-friendly groups so wishlist/favourite pins stay paired with their list definition.
   const grouped = React.useMemo<GroupedList[]>(() => {
@@ -524,6 +527,64 @@ export default function ProfileScreen() {
     setIsEditing(false);
   }, [pendingRemovals, removeEntry]);
 
+  const loadFollowList = React.useCallback(
+    async (mode: "followers" | "following") => {
+      if (!user?.uid) return;
+      setFollowLoading(true);
+      try {
+        const followQuery =
+          mode === "followers"
+            ? query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", user.uid))
+            : query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid));
+        const snap = await getDocs(followQuery);
+        const ids =
+          mode === "followers"
+            ? snap.docs
+                .map((docSnap) => (docSnap.data() as { followerId?: string }).followerId)
+                .filter((id): id is string => Boolean(id))
+            : snap.docs
+                .map((docSnap) => (docSnap.data() as { followeeId?: string }).followeeId)
+                .filter((id): id is string => Boolean(id));
+
+        const profiles = await Promise.all(
+          ids.map(async (id) => {
+            const profileSnap = await getDoc(doc(firestore, USERS_COLLECTION, id));
+            const data = profileSnap.exists()
+              ? (profileSnap.data() as { displayName?: string | null; username?: string | null; photoURL?: string | null })
+              : {};
+            return {
+              id,
+              displayName: data.displayName ?? null,
+              username: data.username ?? null,
+              photoURL: data.photoURL ?? null,
+            } as ProfileLite;
+          })
+        );
+
+        if (mode === "followers") {
+          setFollowersList(profiles);
+        } else {
+          setFollowingList(profiles);
+        }
+      } catch (error) {
+        console.warn("Failed to load follow list", error);
+        if (mode === "followers") {
+          setFollowersList([]);
+        } else {
+          setFollowingList([]);
+        }
+      } finally {
+        setFollowLoading(false);
+      }
+    },
+    [user?.uid]
+  );
+
+  React.useEffect(() => {
+    if (!followModalOpen) return;
+    void loadFollowList(followModalTab);
+  }, [followModalOpen, followModalTab, loadFollowList]);
+
   const handleMarkerPress = React.useCallback(
     (entry: SavedEntry) => {
       setActivePinEntry(entry);
@@ -596,17 +657,29 @@ export default function ProfileScreen() {
               ) : null}
               <View style={styles.metricsRow}>
                 <View style={styles.metricItem}>
-                  <Text style={styles.metricValue}>{wishlistCount}</Text>
-                  <Text style={styles.metricLabel}>Wishlist</Text>
+                  <Text style={styles.metricValue}>{totalSavedCount}</Text>
+                  <Text style={styles.metricLabel}>Places</Text>
                 </View>
-                <View style={styles.metricItem}>
-                  <Text style={styles.metricValue}>{favouriteCount}</Text>
-                  <Text style={styles.metricLabel}>Favourite</Text>
-                </View>
-                <View style={styles.metricItem}>
-                  <Text style={styles.metricValue}>{friendsCount}</Text>
-                  <Text style={styles.metricLabel}>Friends</Text>
-                </View>
+                <Pressable
+                  style={styles.metricItem}
+                  onPress={() => {
+                    setFollowModalTab("followers");
+                    setFollowModalOpen(true);
+                  }}
+                >
+                  <Text style={styles.metricValue}>{followersCount}</Text>
+                  <Text style={styles.metricLabel}>Followers</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.metricItem}
+                  onPress={() => {
+                    setFollowModalTab("following");
+                    setFollowModalOpen(true);
+                  }}
+                >
+                  <Text style={styles.metricValue}>{followingCount}</Text>
+                  <Text style={styles.metricLabel}>Following</Text>
+                </Pressable>
               </View>
             </View>
           </View>
@@ -993,6 +1066,99 @@ export default function ProfileScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      <Modal
+        visible={followModalOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setFollowModalOpen(false)}
+      >
+        <View style={styles.followModalOverlay}>
+          <View style={styles.followModalCard}>
+            <View style={styles.followModalHeader}>
+              <Text style={styles.followModalTitle}>Connections</Text>
+              <Pressable onPress={() => setFollowModalOpen(false)} hitSlop={8}>
+                <Text style={styles.followModalClose}>Close</Text>
+              </Pressable>
+            </View>
+            <View style={styles.followTabs}>
+              <Pressable
+                onPress={() => setFollowModalTab("followers")}
+                style={[
+                  styles.followTab,
+                  followModalTab === "followers" && styles.followTabActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.followTabText,
+                    followModalTab === "followers" && styles.followTabTextActive,
+                  ]}
+                >
+                  Followers
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setFollowModalTab("following")}
+                style={[
+                  styles.followTab,
+                  followModalTab === "following" && styles.followTabActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.followTabText,
+                    followModalTab === "following" && styles.followTabTextActive,
+                  ]}
+                >
+                  Following
+                </Text>
+              </Pressable>
+            </View>
+            {followLoading ? (
+              <View style={styles.followLoading}>
+                <ActivityIndicator size="small" color="#0f172a" />
+              </View>
+            ) : (
+              <FlatList
+                data={followModalTab === "followers" ? followersList : followingList}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.followList}
+                renderItem={({ item }) => {
+                  const label = item.displayName ?? (item.username ? `@${item.username}` : "Unknown");
+                  const sub = item.username && item.displayName ? `@${item.username}` : null;
+                  return (
+                    <View style={styles.followRow}>
+                      {item.photoURL ? (
+                        <Image source={{ uri: item.photoURL }} style={styles.followAvatar} />
+                      ) : (
+                        <View style={styles.followAvatarFallback}>
+                          <Text style={styles.followAvatarText}>{label.slice(0, 1).toUpperCase()}</Text>
+                        </View>
+                      )}
+                      <View style={styles.followText}>
+                        <Text style={styles.followName} numberOfLines={1}>
+                          {label}
+                        </Text>
+                        {sub ? (
+                          <Text style={styles.followSub} numberOfLines={1}>
+                            {sub}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                }}
+                ListEmptyComponent={
+                  <View style={styles.followEmpty}>
+                    <Text style={styles.followEmptyText}>No users yet.</Text>
+                  </View>
+                }
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={listPickerOpen}
@@ -1616,6 +1782,121 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   listPickerEmptyText: {
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+  followModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  followModalCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    paddingTop: 16,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    maxHeight: '70%',
+    width: '100%',
+  },
+  followModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  followModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+  },
+  followModalClose: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  followTabs: {
+    flexDirection: 'row',
+    gap: 10,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 16,
+    padding: 3,
+    marginBottom: 12,
+  },
+  followTab: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  followTabActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  followTabText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  followTabTextActive: {
+    color: '#0f172a',
+  },
+  followLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  followList: {
+    paddingBottom: 24,
+    gap: 10,
+  },
+  followRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 6,
+  },
+  followAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  followAvatarFallback: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followAvatarText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  followText: {
+    flex: 1,
+    gap: 2,
+  },
+  followName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  followSub: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  followEmpty: {
+    paddingVertical: 24,
+    alignItems: 'center',
+  },
+  followEmptyText: {
     fontSize: 12,
     color: '#94a3b8',
   },
