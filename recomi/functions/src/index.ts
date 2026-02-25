@@ -8,6 +8,7 @@ const db = admin.firestore();
 const USERS_COLLECTION = "users";
 const USER_FOLLOWS_COLLECTION = "userFollows";
 const INVITES_COLLECTION = "invites";
+const LIST_LIKES_COLLECTION = "listLikes";
 
 async function deleteQueryBatch(query: admin.firestore.Query, batchSize = 250): Promise<void> {
   const snapshot = await query.limit(batchSize).get();
@@ -81,6 +82,22 @@ async function adjustFollowStats(followerId: string, followeeId: string, delta: 
       const currentFollowers = normalizeCount(followeeSnap.get("followersCount"));
       tx.update(followeeRef, { followersCount: clampCount(currentFollowers, delta) });
     }
+  });
+}
+
+async function adjustListSaves(ownerId: string, listId: string, delta: 1 | -1): Promise<void> {
+  if (!ownerId || !listId) {
+    return;
+  }
+
+  const listRef = db.collection(USERS_COLLECTION).doc(ownerId).collection("lists").doc(listId);
+  await db.runTransaction(async (tx: admin.firestore.Transaction) => {
+    const listSnap = await tx.get(listRef);
+    if (!listSnap.exists) {
+      return;
+    }
+    const current = normalizeCount(listSnap.get("savesCount"));
+    tx.update(listRef, { savesCount: clampCount(current, delta) });
   });
 }
 
@@ -160,5 +177,31 @@ export const onInviteCreated = onDocumentCreated(
     } catch (error) {
       logger.error("Failed to send invite push", error);
     }
+  }
+);
+
+export const onListLikeCreated = onDocumentCreated(
+  { region: "us-central1", document: `${LIST_LIKES_COLLECTION}/{likeId}` },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const data = snapshot.data();
+    const ownerId = data?.ownerId;
+    const listId = data?.listId;
+    if (!ownerId || !listId) return;
+    await adjustListSaves(ownerId, listId, 1);
+  }
+);
+
+export const onListLikeDeleted = onDocumentDeleted(
+  { region: "us-central1", document: `${LIST_LIKES_COLLECTION}/{likeId}` },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+    const data = snapshot.data();
+    const ownerId = data?.ownerId;
+    const listId = data?.listId;
+    if (!ownerId || !listId) return;
+    await adjustListSaves(ownerId, listId, -1);
   }
 );

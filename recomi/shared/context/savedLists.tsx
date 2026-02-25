@@ -1,5 +1,13 @@
 import React from "react"
-import { doc, onSnapshot, runTransaction, serverTimestamp, setDoc } from "firebase/firestore"
+import {
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  runTransaction,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore"
 
 import { firestore } from "../firebase/app"
 import { useAuth } from "./auth"
@@ -17,6 +25,7 @@ export type SavedListDefinition = {
   name: string
   description?: string
   coverImage?: string
+  savesCount?: number
   visibility: "private" | "followers" | "public"
 }
 
@@ -118,10 +127,23 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       return
     }
 
-    const ref = doc(firestore, "users", user.uid)
+    const userRef = doc(firestore, "users", user.uid)
+    const listsRef = collection(firestore, "users", user.uid, "lists")
+    const legacyListsRef = { current: [] as SavedListDefinition[] }
+    const entriesRef = { current: [] as SavedEntry[] }
+    const migratedRef = { current: false }
+    let userLoaded = false
+    let listsLoaded = false
 
-    const unsubscribe = onSnapshot(
-      ref,
+    const maybeFinish = () => {
+      if (userLoaded && listsLoaded) {
+        isHydratedRef.current = true
+        setLoading(false)
+      }
+    }
+
+    const unsubUser = onSnapshot(
+      userRef,
       (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data() as {
@@ -132,15 +154,14 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
           }
 
           const rawLists = Array.isArray(data.lists) ? data.lists : []
-          const nextLists = rawLists.map(
-            (list) => ({
-              ...list,
-              visibility: list.visibility ?? "public",
-            })
-          )
+          legacyListsRef.current = rawLists.map((list) => ({
+            ...list,
+            visibility: list.visibility ?? "public",
+          }))
 
-          setLists(nextLists)
-          setEntries(Array.isArray(data.entries) ? data.entries : [])
+          const nextEntries = Array.isArray(data.entries) ? data.entries : []
+          entriesRef.current = nextEntries
+          setEntries(nextEntries)
           const rawLiked = Array.isArray(data.likedLists) ? (data.likedLists as LikedListRef[]) : []
           setLikedLists(
             rawLiked.map((item) => ({
@@ -153,27 +174,104 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
             typeof data.likedListsVisible === "boolean" ? data.likedListsVisible : true,
           )
         } else {
-          setLists(EMPTY_LIST_DEFINITIONS)
+          entriesRef.current = []
           setEntries([])
           setLikedLists([])
           setLikedListsVisible(true)
         }
-
-        isHydratedRef.current = true
-        setLoading(false)
+        userLoaded = true
+        maybeFinish()
       },
       (error) => {
         console.error("Failed to load saved lists", error)
-        setLists(EMPTY_LIST_DEFINITIONS)
         setEntries([])
         setLikedLists([])
         setLikedListsVisible(true)
-        isHydratedRef.current = true
-        setLoading(false)
+        userLoaded = true
+        maybeFinish()
       }
     )
 
-    return unsubscribe
+    const unsubLists = onSnapshot(
+      listsRef,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const nextLists = snapshot.docs.map((docSnap) => {
+            const data = docSnap.data() as Omit<SavedListDefinition, "id">
+            return {
+              id: docSnap.id,
+              name: data.name ?? "Untitled",
+              description: data.description,
+              coverImage: data.coverImage,
+              savesCount: typeof data.savesCount === "number" ? data.savesCount : 0,
+              visibility: data.visibility ?? "public",
+            } as SavedListDefinition
+          })
+          setLists(nextLists)
+        } else if (legacyListsRef.current.length) {
+          setLists(legacyListsRef.current)
+          if (!migratedRef.current) {
+            migratedRef.current = true
+            void Promise.all(
+              legacyListsRef.current.map((list) =>
+                setDoc(doc(firestore, "users", user.uid, "lists", list.id), {
+                  name: list.name,
+                  description: list.description ?? null,
+                  coverImage: list.coverImage ?? null,
+                  visibility: list.visibility ?? "public",
+                  savesCount: list.savesCount ?? 0,
+                  createdAt: serverTimestamp(),
+                })
+              )
+            )
+          }
+        } else if (entriesRef.current.length) {
+          const byId = new Map<string, SavedListDefinition>()
+          entriesRef.current.forEach((entry) => {
+            if (!entry.listId) return
+            if (byId.has(entry.listId)) return
+            byId.set(entry.listId, {
+              id: entry.listId,
+              name: entry.listName || "Untitled",
+              visibility: "public",
+              savesCount: 0,
+            })
+          })
+          const derived = Array.from(byId.values())
+          setLists(derived)
+          if (!migratedRef.current) {
+            migratedRef.current = true
+            void Promise.all(
+              derived.map((list) =>
+                setDoc(doc(firestore, "users", user.uid, "lists", list.id), {
+                  name: list.name,
+                  description: null,
+                  coverImage: null,
+                  visibility: list.visibility,
+                  savesCount: 0,
+                  createdAt: serverTimestamp(),
+                })
+              )
+            )
+          }
+        } else {
+          setLists(EMPTY_LIST_DEFINITIONS)
+        }
+        listsLoaded = true
+        maybeFinish()
+      },
+      (error) => {
+        console.error("Failed to load list definitions", error)
+        setLists(EMPTY_LIST_DEFINITIONS)
+        listsLoaded = true
+        maybeFinish()
+      }
+    )
+
+    return () => {
+      unsubUser()
+      unsubLists()
+    }
   }, [user])
 
   const persistQueueRef = React.useRef<Promise<void>>(Promise.resolve())
@@ -254,10 +352,9 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     currentUserIdRef.current = user?.uid ?? null
   }, [user?.uid])
 
-  // Push the canonical version of lists/entries/likes into Firestore.
+  // Push the canonical version of entries/likes into Firestore.
   const persist = React.useCallback(
     async (
-      nextLists: SavedListDefinition[] = lists,
       nextEntries: SavedEntry[] = entries,
       nextLikedLists: LikedListRef[] = likedLists,
       nextLikedListsVisible: boolean = likedListsVisible,
@@ -265,7 +362,6 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       if (!user || !isHydratedRef.current) return
       const targetUid = user.uid
       const payload = {
-        lists: nextLists,
         entries: nextEntries,
         likedLists: nextLikedLists,
         likedListsVisible: nextLikedListsVisible,
@@ -286,7 +382,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
         .catch(() => {})
         .then(run)
     },
-    [entries, likedLists, likedListsVisible, lists, user]
+    [entries, likedLists, likedListsVisible, user]
   )
 
   // Merge a pin into the user's collection, deduping by lat/lng/list.
@@ -303,7 +399,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
             )
         )
         const updated = [...next, entry]
-        void persist(lists, updated)
+        void persist(updated)
         void updatePlaceStats(entry.pin, previousStatus, getPinAggregateStatus(updated, entry.pin))
         return updated
       })
@@ -323,7 +419,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
               coordsMatch(existing.pin, pin)
             )
         )
-        void persist(lists, updated)
+        void persist(updated)
         void updatePlaceStats(pin, previousStatus, getPinAggregateStatus(updated, pin))
         return updated
       })
@@ -342,50 +438,67 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
         throw new Error("You must be signed in to create lists")
       }
 
+      const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
       const definition: SavedListDefinition = {
-        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        id,
         name: trimmed,
         visibility,
+        savesCount: 0,
       }
 
       setLists((prev) => {
-        const updated = [...prev, definition]
-        void persist(updated, entries)
-        return updated
+        return [...prev, definition]
+      })
+      void setDoc(doc(firestore, "users", user.uid, "lists", id), {
+        name: trimmed,
+        visibility,
+        description: null,
+        coverImage: null,
+        savesCount: 0,
+        createdAt: serverTimestamp(),
       })
 
       return definition
     },
-    [entries, persist, user]
+    [user]
   )
 
   // Strip a list plus its entries in one shot, then persist both arrays.
   const removeList = React.useCallback(
     (listId: string) => {
+      if (user?.uid) {
+        void deleteDoc(doc(firestore, "users", user.uid, "lists", listId))
+      }
       setLists((prev) => {
         const updatedLists = prev.filter((list) => list.id !== listId)
         setEntries((prevEntries) => {
           const updatedEntries = prevEntries.filter((entry) => entry.listId !== listId)
-          void persist(updatedLists, updatedEntries)
+          void persist(updatedEntries)
           return updatedEntries
         })
         return updatedLists
       })
     },
-    [persist]
+    [persist, user?.uid]
   )
 
   const updateListCover = React.useCallback(
     (listId: string, coverImage: string | null) => {
+      if (user?.uid) {
+        void setDoc(
+          doc(firestore, "users", user.uid, "lists", listId),
+          { coverImage: coverImage ?? null, updatedAt: serverTimestamp() },
+          { merge: true }
+        )
+      }
       setLists((prev) => {
         const updated = prev.map((list) =>
           list.id === listId ? { ...list, coverImage: coverImage ?? undefined } : list
         )
-        void persist(updated, entries)
         return updated
       })
     },
-    [entries, persist]
+    [user?.uid]
   )
 
   const [mapFocusEntry, setMapFocusEntry] = React.useState<SavedEntry | null>(null)
@@ -403,30 +516,44 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
   // Cache other users' public lists the viewer has liked.
   const likeList = React.useCallback(
     (liked: LikedListRef) => {
+      if (!user?.uid) {
+        throw new Error("You must be signed in to like lists")
+      }
+      const likeId = `${liked.ownerId}_${liked.listId}_${user.uid}`
+      void setDoc(doc(firestore, "listLikes", likeId), {
+        ownerId: liked.ownerId,
+        listId: liked.listId,
+        saverId: user.uid,
+        createdAt: serverTimestamp(),
+      })
       setLikedLists((prev) => {
         if (prev.some((entry) => entry.ownerId === liked.ownerId && entry.listId === liked.listId)) {
           return prev
         }
         const updated = [...prev, liked]
-        void persist(lists, entries, updated)
+        void persist(entries, updated)
         return updated
       })
     },
-    [entries, lists, persist]
+    [entries, lists, persist, user?.uid]
   )
 
   const unlikeList = React.useCallback(
     (ownerId: string, listId: string) => {
+      if (user?.uid) {
+        const likeId = `${ownerId}_${listId}_${user.uid}`
+        void deleteDoc(doc(firestore, "listLikes", likeId))
+      }
       setLikedLists((prev) => {
         const updated = prev.filter((entry) => !(entry.ownerId === ownerId && entry.listId === listId))
         if (updated.length === prev.length) {
           return prev
         }
-        void persist(lists, entries, updated)
+        void persist(entries, updated)
         return updated
       })
     },
-    [entries, lists, persist]
+    [entries, lists, persist, user?.uid]
   )
 
   // Toggle whether the viewer exposes their liked lists to others.
@@ -434,7 +561,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     (visible: boolean) => {
       setLikedListsVisible((prev) => {
         if (prev === visible) return prev
-        void persist(lists, entries, likedLists, visible)
+        void persist(entries, likedLists, visible)
         return visible
       })
     },

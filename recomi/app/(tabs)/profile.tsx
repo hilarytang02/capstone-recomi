@@ -192,6 +192,14 @@ export default function ProfileScreen() {
     lists[0]?.id ?? null,
   );
 
+  const listById = React.useMemo(() => {
+    const map = new Map<string, SavedListDefinition>();
+    lists.forEach((list) => {
+      map.set(list.id, list);
+    });
+    return map;
+  }, [lists]);
+
   const listStats = React.useMemo(() => {
     const counts = new Map<string, number>();
     const wishlistCounts = new Map<string, number>();
@@ -741,7 +749,12 @@ export default function ProfileScreen() {
         {selectedGroup ? (
           <View style={styles.detailSection}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
+              <View style={styles.sectionTitleBlock}>
+                <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
+                <Text style={styles.sectionMeta}>
+                  Liked by {listById.get(selectedGroup.definition.id)?.savesCount ?? 0}
+                </Text>
+              </View>
               {!!totalItems && (
                 <Pressable
                   style={[styles.editButton, isEditing && styles.editButtonActive]}
@@ -971,6 +984,7 @@ export default function ProfileScreen() {
                 const total = listStats.counts.get(item.id) ?? 0;
                 const wishlist = listStats.wishlistCounts.get(item.id) ?? 0;
                 const favourite = listStats.favouriteCounts.get(item.id) ?? 0;
+                const savesCount = item.savesCount ?? 0;
                 const isSelected = item.id === selectedListId;
                 return (
                   <Pressable
@@ -988,7 +1002,7 @@ export default function ProfileScreen() {
                         {item.name}
                       </Text>
                       <Text style={styles.listPickerMetaText}>
-                        {total} places • {wishlist} wishlist • {favourite} favourite
+                        {total} places • {wishlist} wishlist • {favourite} favourite • {savesCount} saves
                       </Text>
                     </View>
                   </Pressable>
@@ -1596,10 +1610,17 @@ const styles = StyleSheet.create({
     elevation: 4,
     marginTop: 12,
   },
+  sectionTitleBlock: {
+    gap: 4,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: '700',
     color: '#0f172a',
+  },
+  sectionMeta: {
+    fontSize: 12,
+    color: '#64748b',
   },
   sectionHeader: {
     flexDirection: 'row',
