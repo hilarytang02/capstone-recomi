@@ -567,28 +567,11 @@ export default function UserProfileScreen() {
           renderItem={({ item }) => {
             const total = item.wishlist.length + item.favourite.length;
             const isSelected = item.definition.id === selectedListId;
-            const likedByMe = profile ? isListLiked(profile.id, item.definition.id) : false;
             return (
               <Pressable
                 style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
                 onPress={() => setSelectedListId(item.definition.id)}
               >
-                <Pressable
-                  style={[styles.cardStarButton, likedByMe && styles.cardStarButtonActive]}
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    handleToggleListLike(item.definition);
-                  }}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel={likedByMe ? "Unstar list" : "Star list"}
-                >
-                  <FontAwesome
-                    name={likedByMe ? "star" : "star-o"}
-                    size={16}
-                    color={likedByMe ? "#f59e0b" : "#0f172a"}
-                  />
-                </Pressable>
                 <Text style={styles.galleryTitle} numberOfLines={2}>
                   {item.definition.name}
                 </Text>
@@ -605,13 +588,40 @@ export default function UserProfileScreen() {
           {selectedGroup ? (
             <View style={styles.detailSection}>
               <View style={styles.detailHeader}>
-                <Text style={styles.detailTitle}>{selectedGroup.definition.name}</Text>
-                {selectedGroup.definition.description ? (
-                  <Text style={styles.listDescription}>{selectedGroup.definition.description}</Text>
-                ) : null}
-                <Text style={styles.listMeta}>
-                  {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
-                </Text>
+                <View style={styles.detailHeaderText}>
+                  <Text style={styles.detailTitle}>{selectedGroup.definition.name}</Text>
+                  {selectedGroup.definition.description ? (
+                    <Text style={styles.listDescription}>{selectedGroup.definition.description}</Text>
+                  ) : null}
+                  <Text style={styles.listMeta}>
+                    {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
+                  </Text>
+                </View>
+                {profile && (
+                  <Pressable
+                    style={[
+                      styles.detailStarButton,
+                      isListLiked(profile.id, selectedGroup.definition.id) &&
+                        styles.detailStarButtonActive,
+                    ]}
+                    onPress={() => handleToggleListLike(selectedGroup.definition)}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      isListLiked(profile.id, selectedGroup.definition.id) ? "Unstar list" : "Star list"
+                    }
+                  >
+                    <FontAwesome
+                      name={
+                        isListLiked(profile.id, selectedGroup.definition.id) ? "star" : "star-o"
+                      }
+                      size={18}
+                      color={
+                        isListLiked(profile.id, selectedGroup.definition.id) ? "#f59e0b" : "#0f172a"
+                      }
+                    />
+                  </Pressable>
+                )}
               </View>
               <View style={styles.mapPreviewWrapper}>
                 <MapView
@@ -927,23 +937,6 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     marginBottom: 12,
   },
-  cardStarButton: {
-    position: "absolute",
-    top: 10,
-    right: 10,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  cardStarButtonActive: {
-    backgroundColor: "rgba(250,204,21,0.15)",
-    borderColor: "#fbbf24",
-  },
   galleryMeta: {
     flexDirection: "row",
     alignItems: "center",
@@ -965,7 +958,28 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   detailHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  detailHeaderText: {
+    flex: 1,
     gap: 6,
+  },
+  detailStarButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  detailStarButtonActive: {
+    backgroundColor: "rgba(250,204,21,0.18)",
+    borderColor: "#fbbf24",
   },
   detailTitle: {
     fontSize: 18,
