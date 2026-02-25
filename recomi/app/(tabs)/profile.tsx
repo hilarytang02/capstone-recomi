@@ -110,6 +110,7 @@ export default function ProfileScreen() {
   const [selfProfile, setSelfProfile] = React.useState<UserDocument | null>(null);
   const [listPickerOpen, setListPickerOpen] = React.useState(false);
   const [listSearch, setListSearch] = React.useState("");
+  const [activeProfileTab, setActiveProfileTab] = React.useState<"lists" | "liked">("lists");
   const [friendsCount, setFriendsCount] = React.useState(0);
   const handleOpenAccountEditor = React.useCallback(() => {
     router.push("/(tabs)/profile-edit");
@@ -625,49 +626,86 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <FlatList<SavedListDefinition>
-          ref={galleryRef}
-          horizontal
-          ListHeaderComponent={<NewListButton />}
-          data={visibleLists}
-          keyExtractor={(item) => item.id}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.gallery}
-          extraData={{ selectedListId, deleteMode }}
-          ListFooterComponent={
-            hasLists
-              ? () => (
-                  <View style={styles.galleryFooterRow}>
-                    {lists.length > MAX_VISIBLE_LISTS ? (
-                      <Pressable
-                        style={styles.galleryAllChip}
-                        onPress={() => {
-                          setListSearch("");
-                          setListPickerOpen(true);
-                        }}
-                      >
-                        <Text style={styles.galleryAllChipLabel}>All</Text>
-                        <View style={styles.galleryAllChipCount}>
-                          <Text style={styles.galleryAllChipCountText}>{lists.length}</Text>
-                        </View>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                )
-              : undefined
-          }
-          ListFooterComponentStyle={styles.galleryFooter}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyLists}>
-              <Text style={styles.emptyListsText}>Create your first list to get started.</Text>
-              <NewListButton variant="empty" />
-            </View>
-          )}
-          renderItem={({ item }: { item: SavedListDefinition }) => {
-            const total = listStats.counts.get(item.id) ?? 0;
-            const isSelected = item.id === selectedListId;
-            const cardWiggleStyle = deleteMode
-              ? {
+        <View style={styles.profileTabs}>
+          <Pressable
+            onPress={() => setActiveProfileTab("lists")}
+            style={[
+              styles.profileTab,
+              activeProfileTab === "lists" && styles.profileTabActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.profileTabText,
+                activeProfileTab === "lists" && styles.profileTabTextActive,
+              ]}
+            >
+              Lists
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setActiveProfileTab("liked")}
+            style={[
+              styles.profileTab,
+              activeProfileTab === "liked" && styles.profileTabActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.profileTabText,
+                activeProfileTab === "liked" && styles.profileTabTextActive,
+              ]}
+            >
+              Liked
+            </Text>
+          </Pressable>
+        </View>
+
+        {activeProfileTab === "lists" ? (
+          <>
+            <FlatList<SavedListDefinition>
+              ref={galleryRef}
+              horizontal
+              ListHeaderComponent={<NewListButton />}
+              data={visibleLists}
+              keyExtractor={(item) => item.id}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.gallery}
+              extraData={{ selectedListId, deleteMode }}
+              ListFooterComponent={
+                hasLists
+                  ? () => (
+                      <View style={styles.galleryFooterRow}>
+                        {lists.length > MAX_VISIBLE_LISTS ? (
+                          <Pressable
+                            style={styles.galleryAllChip}
+                            onPress={() => {
+                              setListSearch("");
+                              setListPickerOpen(true);
+                            }}
+                          >
+                            <Text style={styles.galleryAllChipLabel}>All</Text>
+                            <View style={styles.galleryAllChipCount}>
+                              <Text style={styles.galleryAllChipCountText}>{lists.length}</Text>
+                            </View>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    )
+                  : undefined
+              }
+              ListFooterComponentStyle={styles.galleryFooter}
+              ListEmptyComponent={() => (
+                <View style={styles.emptyLists}>
+                  <Text style={styles.emptyListsText}>Create your first list to get started.</Text>
+                  <NewListButton variant="empty" />
+                </View>
+              )}
+              renderItem={({ item }: { item: SavedListDefinition }) => {
+                const total = listStats.counts.get(item.id) ?? 0;
+                const isSelected = item.id === selectedListId;
+                const cardWiggleStyle = deleteMode
+                  ? {
                   transform: [
                     {
                       rotate: wiggleAnim.interpolate({
@@ -697,81 +735,81 @@ export default function ProfileScreen() {
               );
             };
 
-            return (
-              <Animated.View style={[styles.galleryCardWrapper, cardWiggleStyle]}>
-                <Pressable
-                  style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
-                  onPress={() => {
-                    if (deleteMode) {
-                      setDeleteMode(false);
-                      return;
-                    }
-                    if (isEditing) {
-                      setIsEditing(false);
-                      setPendingRemovals({});
-                    }
-                    setSelectedListId(item.id);
-                  }}
-                  onLongPress={() => {
-                    setDeleteMode(true);
-                    setIsEditing(false);
-                    setPendingRemovals({});
-                    setSelectedListId(item.id);
-                  }}
-                  delayLongPress={250}
-                >
-                  {deleteMode && (
+                return (
+                  <Animated.View style={[styles.galleryCardWrapper, cardWiggleStyle]}>
                     <Pressable
-                      style={styles.deleteBadge}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        promptRemoval();
+                      style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
+                      onPress={() => {
+                        if (deleteMode) {
+                          setDeleteMode(false);
+                          return;
+                        }
+                        if (isEditing) {
+                          setIsEditing(false);
+                          setPendingRemovals({});
+                        }
+                        setSelectedListId(item.id);
                       }}
-                      hitSlop={8}
+                      onLongPress={() => {
+                        setDeleteMode(true);
+                        setIsEditing(false);
+                        setPendingRemovals({});
+                        setSelectedListId(item.id);
+                      }}
+                      delayLongPress={250}
                     >
-                      <Text style={styles.deleteBadgeText}>−</Text>
+                      {deleteMode && (
+                        <Pressable
+                          style={styles.deleteBadge}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            promptRemoval();
+                          }}
+                          hitSlop={8}
+                        >
+                          <Text style={styles.deleteBadgeText}>−</Text>
+                        </Pressable>
+                      )}
+                      <View style={styles.listChipRow}>
+                        <Text style={styles.listChipTitle} numberOfLines={1} ellipsizeMode="tail">
+                          {item.name}
+                        </Text>
+                        <View style={styles.listChipCount}>
+                          <Text style={styles.listChipCountText}>{total}</Text>
+                        </View>
+                      </View>
+                    </Pressable>
+                  </Animated.View>
+                );
+              }}
+            />
+
+            {selectedGroup ? (
+              <View style={styles.detailSection}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionTitleBlock}>
+                    <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
+                    <Text style={styles.sectionMeta}>
+                      Liked by {listById.get(selectedGroup.definition.id)?.savesCount ?? 0}
+                    </Text>
+                  </View>
+                  {!!totalItems && (
+                    <Pressable
+                      style={[styles.editButton, isEditing && styles.editButtonActive]}
+                      hitSlop={10}
+                      onPress={toggleEditing}
+                    >
+                      <FontAwesome name="pencil" size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
                     </Pressable>
                   )}
-                  <View style={styles.listChipRow}>
-                    <Text style={styles.listChipTitle} numberOfLines={1} ellipsizeMode="tail">
-                      {item.name}
-                    </Text>
-                    <View style={styles.listChipCount}>
-                      <Text style={styles.listChipCountText}>{total}</Text>
-                    </View>
-                  </View>
-                </Pressable>
-              </Animated.View>
-            );
-          }}
-        />
-
-        {selectedGroup ? (
-          <View style={styles.detailSection}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleBlock}>
-                <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
-                <Text style={styles.sectionMeta}>
-                  Liked by {listById.get(selectedGroup.definition.id)?.savesCount ?? 0}
-                </Text>
-              </View>
-              {!!totalItems && (
-                <Pressable
-                  style={[styles.editButton, isEditing && styles.editButtonActive]}
-                  hitSlop={10}
-                  onPress={toggleEditing}
-                >
-                  <FontAwesome name="pencil" size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
-                </Pressable>
-              )}
-            </View>
-            <View style={styles.mapPreviewWrapper}>
-              <MapView
-                ref={previewMapRef}
-                key={selectedListId ?? 'none'}
-                style={styles.detailMap}
-                initialRegion={regionForMap}
-              >
+                </View>
+                <View style={styles.mapPreviewWrapper}>
+                  <MapView
+                    ref={previewMapRef}
+                    key={selectedListId ?? 'none'}
+                    style={styles.detailMap}
+                    initialRegion={regionForMap}
+                  >
                 {pinsForMap.map((entry) => (
                   <Marker
                     key={`${entry.listId}-${entry.bucket}-${entry.savedAt}`}
@@ -797,47 +835,47 @@ export default function ProfileScreen() {
               ) : null}
             </View>
 
-            <View style={styles.bucketSection}>
-              <Text style={styles.bucketTitle}>Wishlist</Text>
-              {selectedGroup.wishlist.length ? (
-                selectedGroup.wishlist.map((entry: SavedEntry) => {
-                  const entryKey = makeEntryKey(entry);
-                  return (
-                    <SwipeStrikeItem
-                      key={entryKey}
-                      label={`• ${entry.pin.label}`}
-                      editing={isEditing}
-                      marked={Boolean(pendingRemovals[entryKey])}
-                      onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
-                      onPress={() => handleEntryPress(entry)}
-                    />
-                  );
-                })
-              ) : (
-                <Text style={styles.emptyState}>No wishlist saves yet.</Text>
-              )}
-            </View>
+                <View style={styles.bucketSection}>
+                  <Text style={styles.bucketTitle}>Wishlist</Text>
+                  {selectedGroup.wishlist.length ? (
+                    selectedGroup.wishlist.map((entry: SavedEntry) => {
+                      const entryKey = makeEntryKey(entry);
+                      return (
+                        <SwipeStrikeItem
+                          key={entryKey}
+                          label={`• ${entry.pin.label}`}
+                          editing={isEditing}
+                          marked={Boolean(pendingRemovals[entryKey])}
+                          onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                          onPress={() => handleEntryPress(entry)}
+                        />
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.emptyState}>No wishlist saves yet.</Text>
+                  )}
+                </View>
 
-            <View style={styles.bucketSection}>
-              <Text style={styles.bucketTitle}>Favourite</Text>
-              {selectedGroup.favourite.length ? (
-                selectedGroup.favourite.map((entry: SavedEntry) => {
-                  const entryKey = makeEntryKey(entry);
-                  return (
-                    <SwipeStrikeItem
-                      key={entryKey}
-                      label={`• ${entry.pin.label}`}
-                      editing={isEditing}
-                      marked={Boolean(pendingRemovals[entryKey])}
-                      onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
-                      onPress={() => handleEntryPress(entry)}
-                    />
-                  );
-                })
-              ) : (
-                <Text style={styles.emptyState}>No favourite saves yet.</Text>
-              )}
-            </View>
+                <View style={styles.bucketSection}>
+                  <Text style={styles.bucketTitle}>Favourite</Text>
+                  {selectedGroup.favourite.length ? (
+                    selectedGroup.favourite.map((entry: SavedEntry) => {
+                      const entryKey = makeEntryKey(entry);
+                      return (
+                        <SwipeStrikeItem
+                          key={entryKey}
+                          label={`• ${entry.pin.label}`}
+                          editing={isEditing}
+                          marked={Boolean(pendingRemovals[entryKey])}
+                          onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
+                          onPress={() => handleEntryPress(entry)}
+                        />
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.emptyState}>No favourite saves yet.</Text>
+                  )}
+                </View>
 
             {isEditing && (
               <View style={styles.editActions}>
@@ -857,11 +895,14 @@ export default function ProfileScreen() {
                 )}
               </View>
             )}
-          </View>
+              </View>
+            ) : null}
+          </>
         ) : null}
-        <View style={styles.likedSection}>
-          <View style={styles.likedHeader}>
-            <Text style={styles.sectionTitle}>Liked Lists</Text>
+        {activeProfileTab === "liked" ? (
+          <View style={styles.likedSection}>
+            <View style={styles.likedHeader}>
+              <Text style={styles.sectionTitle}>Liked Lists</Text>
             <View style={styles.likedToggleRow}>
               <Text style={styles.likedToggleLabel}>
                 {likedListsVisible ? "Visible to others" : "Hidden from others"}
@@ -874,82 +915,83 @@ export default function ProfileScreen() {
               />
             </View>
           </View>
-          {likedLists.length ? (
-            likedLists.map((item) => {
-              const pins = [...item.wishlist, ...item.favourite];
-              const region = computeRegion(pins);
-              const isExpanded = expandedLikedId === item.listId;
-              return (
-                <View key={`${item.ownerId}-${item.listId}`} style={styles.likedAccordionCard}>
-                  <Pressable
-                    style={styles.likedAccordionHeader}
-                    onPress={() =>
-                      setExpandedLikedId((current) => (current === item.listId ? null : item.listId))
-                    }
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.likedCardTitle} numberOfLines={1}>
-                        {item.listName}
-                      </Text>
-                      <Text style={styles.likedCardOwner} numberOfLines={1}>
-                        by {item.ownerDisplayName ?? item.ownerUsername ?? "Unknown user"}
-                      </Text>
-                    </View>
-                    <FontAwesome
-                      name={isExpanded ? "chevron-up" : "chevron-down"}
-                      size={16}
-                      color="#0f172a"
-                    />
-                  </Pressable>
-                  {isExpanded ? (
-                    <View style={styles.likedAccordionBody}>
-                      <MapView
-                        style={styles.likedMap}
-                        initialRegion={region}
-                        key={`${item.listId}-liked-map`}
-                      >
-                        {pins.map((entry) => (
-                          <Marker
-                            key={`${item.listId}-pin-${entry.savedAt}`}
-                            coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
-                            title={entry.pin.label}
-                            pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
-                          />
-                        ))}
-                      </MapView>
-                      <View style={styles.likedBucketSection}>
-                        <Text style={styles.bucketTitle}>Wishlist</Text>
-                        {item.wishlist.length ? (
-                          item.wishlist.map((entry) => (
-                            <Text key={`liked-wish-${entry.savedAt}`} style={styles.bucketItem}>
-                              • {entry.pin.label}
-                            </Text>
-                          ))
-                        ) : (
-                          <Text style={styles.emptyState}>No wishlist saves yet.</Text>
-                        )}
+            {likedLists.length ? (
+              likedLists.map((item) => {
+                const pins = [...item.wishlist, ...item.favourite];
+                const region = computeRegion(pins);
+                const isExpanded = expandedLikedId === item.listId;
+                return (
+                  <View key={`${item.ownerId}-${item.listId}`} style={styles.likedAccordionCard}>
+                    <Pressable
+                      style={styles.likedAccordionHeader}
+                      onPress={() =>
+                        setExpandedLikedId((current) => (current === item.listId ? null : item.listId))
+                      }
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.likedCardTitle} numberOfLines={1}>
+                          {item.listName}
+                        </Text>
+                        <Text style={styles.likedCardOwner} numberOfLines={1}>
+                          by {item.ownerDisplayName ?? item.ownerUsername ?? "Unknown user"}
+                        </Text>
                       </View>
-                      <View style={styles.likedBucketSection}>
-                        <Text style={styles.bucketTitle}>Favourite</Text>
-                        {item.favourite.length ? (
-                          item.favourite.map((entry) => (
-                            <Text key={`liked-fav-${entry.savedAt}`} style={styles.bucketItem}>
-                              • {entry.pin.label}
-                            </Text>
-                          ))
-                        ) : (
-                          <Text style={styles.emptyState}>No favourite saves yet.</Text>
-                        )}
+                      <FontAwesome
+                        name={isExpanded ? "chevron-up" : "chevron-down"}
+                        size={16}
+                        color="#0f172a"
+                      />
+                    </Pressable>
+                    {isExpanded ? (
+                      <View style={styles.likedAccordionBody}>
+                        <MapView
+                          style={styles.likedMap}
+                          initialRegion={region}
+                          key={`${item.listId}-liked-map`}
+                        >
+                          {pins.map((entry) => (
+                            <Marker
+                              key={`${item.listId}-pin-${entry.savedAt}`}
+                              coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                              title={entry.pin.label}
+                              pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                            />
+                          ))}
+                        </MapView>
+                        <View style={styles.likedBucketSection}>
+                          <Text style={styles.bucketTitle}>Wishlist</Text>
+                          {item.wishlist.length ? (
+                            item.wishlist.map((entry) => (
+                              <Text key={`liked-wish-${entry.savedAt}`} style={styles.bucketItem}>
+                                • {entry.pin.label}
+                              </Text>
+                            ))
+                          ) : (
+                            <Text style={styles.emptyState}>No wishlist saves yet.</Text>
+                          )}
+                        </View>
+                        <View style={styles.likedBucketSection}>
+                          <Text style={styles.bucketTitle}>Favourite</Text>
+                          {item.favourite.length ? (
+                            item.favourite.map((entry) => (
+                              <Text key={`liked-fav-${entry.savedAt}`} style={styles.bucketItem}>
+                                • {entry.pin.label}
+                              </Text>
+                            ))
+                          ) : (
+                            <Text style={styles.emptyState}>No favourite saves yet.</Text>
+                          )}
+                        </View>
                       </View>
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })
-          ) : (
-            <Text style={styles.emptyState}>You haven’t liked any lists yet.</Text>
-          )}
-        </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={styles.emptyState}>You haven’t liked any lists yet.</Text>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
       <Modal
@@ -1318,6 +1360,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 4,
   },
+  profileTabs: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+    backgroundColor: '#e2e8f0',
+    borderRadius: 16,
+    padding: 4,
+  },
+  profileTab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  profileTabActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  profileTabText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  profileTabTextActive: {
+    color: '#0f172a',
+  },
   editAccountButton: {
     flex: 1,
     alignItems: 'center',
@@ -1673,8 +1745,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   likedSection: {
-    marginTop: 24,
-    gap: 12,
+    marginTop: 20,
+    gap: 10,
   },
   likedHeader: {
     flexDirection: 'row',
@@ -1691,15 +1763,13 @@ const styles = StyleSheet.create({
     color: '#475569',
   },
   likedAccordionCard: {
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    padding: 12,
-    marginBottom: 12,
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   likedAccordionHeader: {
     flexDirection: 'row',
@@ -1707,25 +1777,28 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   likedAccordionBody: {
-    marginTop: 12,
-    gap: 12,
+    marginTop: 10,
+    gap: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
   },
   likedMap: {
-    height: 180,
-    borderRadius: 14,
+    height: 150,
+    borderRadius: 12,
   },
   likedBucketSection: {
-    gap: 6,
+    gap: 4,
   },
   likedCardTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#0f172a',
   },
   likedCardOwner: {
-    fontSize: 14,
-    color: '#475569',
-    marginTop: 6,
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 4,
   },
   likedCardDescription: {
     fontSize: 13,
