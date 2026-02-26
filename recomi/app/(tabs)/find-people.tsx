@@ -153,10 +153,6 @@ export default function FindPeopleScreen() {
         <View style={styles.cardContent}>
           <Text style={styles.cardTitle}>{item.displayName ?? item.username ?? "Unknown user"}</Text>
           {item.username ? <Text style={styles.cardHandle}>@{item.username}</Text> : null}
-          {item.bio ? <Text style={styles.cardBio} numberOfLines={2}>{item.bio}</Text> : null}
-          <Text style={styles.cardMeta}>
-            {item.savedPlacesCount} {item.savedPlacesCount === 1 ? "place saved" : "places saved"}
-          </Text>
         </View>
       </Pressable>
     ),
@@ -265,34 +261,35 @@ const styles = StyleSheet.create({
   },
   card: {
     flexDirection: "row",
-    padding: 16,
-    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     backgroundColor: "#fff",
-    marginBottom: 12,
+    marginBottom: 10,
     shadowColor: "#0f172a",
     shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
   avatarWrapper: {
-    marginRight: 16,
+    marginRight: 12,
   },
   avatar: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
   },
   fallbackAvatar: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
   },
   fallbackAvatarText: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: "600",
     color: "#475569",
   },
@@ -300,12 +297,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardTitle: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "600",
     color: "#0f172a",
   },
   cardHandle: {
-    fontSize: 15,
+    fontSize: 13,
     color: "#64748b",
     marginTop: 2,
   },
