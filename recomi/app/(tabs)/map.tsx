@@ -1397,15 +1397,6 @@ export default function MapScreen() {
                   <Text style={styles.modalEmptySubtitle}>
                     Create one to start saving your places.
                   </Text>
-                  <Pressable
-                    onPress={openNewListModal}
-                    style={styles.modalEmptyButton}
-                    accessibilityRole="button"
-                    accessibilityLabel="Create a new list"
-                  >
-                    <FontAwesome name="plus" size={16} color="#0f172a" />
-                    <Text style={styles.modalEmptyButtonText}>New List</Text>
-                  </Pressable>
                 </View>
               )}
               renderItem={({ item }) => {
@@ -1447,8 +1438,7 @@ export default function MapScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Create a new list"
               >
-                <FontAwesome name="plus" size={14} color="#0f172a" />
-                <Text style={styles.modalNewListText}>List</Text>
+                <Text style={styles.modalNewListText}>+ List</Text>
               </Pressable>
               <Pressable onPress={handleCancel} hitSlop={12}>
                 <Text style={styles.modalFooterCancel}>Cancel</Text>
