@@ -10,6 +10,12 @@ const USER_FOLLOWS_COLLECTION = "userFollows";
 const INVITES_COLLECTION = "invites";
 const LIST_LIKES_COLLECTION = "listLikes";
 
+const sanitizeUsername = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]/g, "");
+
 async function deleteQueryBatch(query: admin.firestore.Query, batchSize = 250): Promise<void> {
   const snapshot = await query.limit(batchSize).get();
   if (snapshot.empty) {
@@ -52,6 +58,24 @@ export const cleanupUserProfile = functionsV1
     await deleteUserFollows(uid);
 
     logger.info("Finished cleanup for", { uid });
+  });
+
+export const checkUsernameAvailability = functionsV1
+  .region("us-central1")
+  .https.onCall(async (data) => {
+    const raw = typeof data?.username === "string" ? data.username : "";
+    const normalized = sanitizeUsername(raw);
+    if (!normalized) {
+      return { available: false };
+    }
+
+    const snapshot = await db
+      .collection(USERS_COLLECTION)
+      .where("usernameLowercase", "==", normalized)
+      .limit(1)
+      .get();
+
+    return { available: snapshot.empty };
   });
 
 const normalizeCount = (value: unknown): number =>

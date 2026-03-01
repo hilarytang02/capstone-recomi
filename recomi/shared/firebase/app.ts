@@ -2,6 +2,7 @@ import { initializeApp, getApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { FirebaseError } from "firebase/app";
 import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { getFunctions } from "firebase/functions";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
@@ -51,7 +52,9 @@ if (Platform.OS === "web") {
 }
 
 const db = getFirestore(app);
+const functions = getFunctions(app, "us-central1");
 
 export const firebaseApp = app;
 export const auth = authInstance;
 export const firestore = db;
+export const firebaseFunctions = functions;

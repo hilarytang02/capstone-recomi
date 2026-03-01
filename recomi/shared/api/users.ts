@@ -17,8 +17,9 @@ import {
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from "firebase/firestore"
+import { httpsCallable } from "firebase/functions"
 
-import { firestore } from "@/shared/firebase/app"
+import { firebaseFunctions, firestore } from "@/shared/firebase/app"
 
 export const USERS_COLLECTION = "users"
 export const USER_FOLLOWS_COLLECTION = "userFollows"
@@ -150,14 +151,44 @@ export async function isUsernameAvailable(
       limitQuery(1),
     ),
   )
-  if (snapshot.empty) {
+  if (!snapshot.empty) {
+    const docSnapshot = snapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
+    if (excludeUid && docSnapshot.id === excludeUid) {
+      return true
+    }
+    return false
+  }
+
+  // Fallback for legacy profiles that don't have usernameLowercase populated.
+  const legacySnapshot = await getDocs(
+    query(
+      collection(db, USERS_COLLECTION),
+      where("username", "==", normalized),
+      limitQuery(1),
+    ),
+  )
+  if (legacySnapshot.empty) {
     return true
   }
-  const docSnapshot = snapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
-  if (excludeUid && docSnapshot.id === excludeUid) {
+  const legacyDoc = legacySnapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
+  if (excludeUid && legacyDoc.id === excludeUid) {
     return true
   }
   return false
+}
+
+type UsernameAvailabilityResponse = {
+  available: boolean
+}
+
+// Use a callable to check availability before authentication.
+export async function isUsernameAvailablePublic(username: string): Promise<boolean> {
+  const callable = httpsCallable<{ username: string }, UsernameAvailabilityResponse>(
+    firebaseFunctions,
+    "checkUsernameAvailability",
+  )
+  const result = await callable({ username })
+  return Boolean(result.data?.available)
 }
 
 const buildFallbackUsername = (user: User) => {

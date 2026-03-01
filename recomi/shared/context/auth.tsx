@@ -5,7 +5,7 @@ import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import Constants from "expo-constants";
 import type { User } from "@firebase/auth-types";
-import type { FirebaseError } from "firebase/app";
+import { FirebaseError } from "firebase/app";
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -218,9 +218,28 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   // Exposed so the signup screen can provision new email/password accounts.
   const createAccountWithEmail = React.useCallback(async (email: string, password: string, username?: string) => {
     const normalizedUsername = username ? username.trim().toLowerCase() : null;
-    const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
-    if (result.user && normalizedUsername) {
-      await upsertUserProfileFromAuth(result.user, { username: normalizedUsername });
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      if (result.user && normalizedUsername) {
+        await upsertUserProfileFromAuth(result.user, { username: normalizedUsername });
+      }
+    } catch (err) {
+      if (err instanceof FirebaseError) {
+        if (err.code === "auth/email-already-in-use") {
+          throw new Error("This email is already tied to an existing account.");
+        }
+        if (err.code === "auth/invalid-email") {
+          throw new Error("Please enter a valid email address.");
+        }
+        if (err.code === "auth/weak-password") {
+          throw new Error("Your password is too weak. Please choose a stronger password.");
+        }
+        throw new Error(err.message);
+      }
+      if (err instanceof Error) {
+        throw err;
+      }
+      throw new Error("Unable to create account. Please try again.");
     }
   }, []);
 
