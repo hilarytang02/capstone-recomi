@@ -739,7 +739,7 @@ export default function ProfileScreen() {
             <FlatList<SavedListDefinition>
               ref={galleryRef}
               horizontal
-              ListHeaderComponent={<NewListButton />}
+              ListHeaderComponent={hasLists ? <NewListButton /> : null}
               data={visibleLists}
               keyExtractor={(item) => item.id}
               showsHorizontalScrollIndicator={false}
@@ -768,10 +768,18 @@ export default function ProfileScreen() {
                   : undefined
               }
               ListFooterComponentStyle={styles.galleryFooter}
+              ListEmptyComponentStyle={styles.emptyListsWrapper}
               ListEmptyComponent={() => (
                 <View style={styles.emptyLists}>
-                  <Text style={styles.emptyListsText}>Create your first list to get started.</Text>
-                  <NewListButton variant="empty" />
+                  <View style={styles.emptyCard}>
+                    <Text style={styles.emptyTitle}>Create your first list</Text>
+                    <Text style={styles.emptyListsText}>
+                      Keep wishlist and favorites organized with custom lists.
+                    </Text>
+                    <Pressable style={styles.emptyCta} onPress={openNewListModal}>
+                      <Text style={styles.emptyCtaText}>+</Text>
+                    </Pressable>
+                  </View>
                 </View>
               )}
               renderItem={({ item }: { item: SavedListDefinition }) => {
@@ -1945,14 +1953,54 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   emptyLists: {
-    paddingVertical: 24,
+    paddingTop: 8,
+    paddingBottom: 24,
     alignItems: 'center',
+    justifyContent: 'flex-start',
     gap: 16,
+  },
+  emptyListsWrapper: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  emptyCard: {
+    width: 260,
+    backgroundColor: '#f8fafc',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#0f172a',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+    textAlign: 'center',
   },
   emptyListsText: {
     fontSize: 14,
     color: '#475569',
     textAlign: 'center',
+  },
+  emptyCta: {
+    marginTop: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    backgroundColor: '#0f172a',
+  },
+  emptyCtaText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   detailSection: {
     backgroundColor: '#ffffff',
