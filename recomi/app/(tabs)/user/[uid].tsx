@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getCountFromServer, onSnapshot, query, where } from "firebase/firestore";
 
 import { firestore } from "@/shared/firebase/app";
 import {
@@ -98,6 +98,7 @@ export default function UserProfileScreen() {
   const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
   const [listPickerOpen, setListPickerOpen] = React.useState(false);
   const [listSearch, setListSearch] = React.useState("");
+  const [likedByCount, setLikedByCount] = React.useState<number | null>(null);
   const previewMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const modalMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const feedbackAnim = React.useRef(new Animated.Value(0)).current;
@@ -372,6 +373,39 @@ export default function UserProfileScreen() {
     };
   }, []);
 
+  React.useEffect(() => {
+    if (!profile || !selectedGroup) {
+      setLikedByCount(null);
+      return;
+    }
+    const directCount = selectedGroup.definition.savesCount;
+    if (typeof directCount === "number") {
+      setLikedByCount(directCount);
+      return;
+    }
+    let active = true;
+    const loadCount = async () => {
+      try {
+        const countSnap = await getCountFromServer(
+          query(
+            collection(firestore, "listLikes"),
+            where("ownerId", "==", profile.id),
+            where("listId", "==", selectedGroup.definition.id),
+          ),
+        );
+        if (!active) return;
+        setLikedByCount(countSnap.data().count ?? 0);
+      } catch (err) {
+        if (!active) return;
+        console.warn("Failed to load liked-by count", err);
+        setLikedByCount(0);
+      }
+    };
+    void loadCount();
+    return () => {
+      active = false;
+    };
+  }, [profile, selectedGroup]);
   React.useEffect(() => {
     if (!likedListsFromProfile.length) {
       setExpandedLikedId(null);
@@ -1424,7 +1458,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   bucketTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: "#0f172a",
   },

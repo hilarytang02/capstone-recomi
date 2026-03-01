@@ -609,16 +609,13 @@ export default function ProfileScreen() {
     );
   }, [likedLists]);
 
-  if (listsLoading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#0f172a" />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.screen}>
+      {listsLoading ? (
+        <View style={styles.loader}>
+          <ActivityIndicator size="large" color="#0f172a" />
+        </View>
+      ) : null}
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={[
@@ -871,7 +868,7 @@ export default function ProfileScreen() {
                   <View style={styles.sectionTitleBlock}>
                     <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
                     <Text style={styles.sectionMeta}>
-                      Liked by {listById.get(selectedGroup.definition.id)?.savesCount ?? 0}
+                      {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
                     </Text>
                   </View>
                   {!!totalItems && (
@@ -2191,7 +2188,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   bucketTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#0f172a',
   },
