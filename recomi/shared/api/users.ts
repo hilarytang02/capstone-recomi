@@ -126,13 +126,29 @@ export async function findUserByUsername(username: string, db: Firestore = fires
       limitQuery(1),
     ),
   )
-  if (snapshot.empty) {
+  if (!snapshot.empty) {
+    const docSnapshot = snapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
+    return {
+      id: docSnapshot.id,
+      data: docSnapshot.data(),
+    }
+  }
+
+  // Fallback for legacy profiles that don't have usernameLowercase populated.
+  const legacySnapshot = await getDocs(
+    query(
+      collection(db, USERS_COLLECTION),
+      where("username", "==", normalized),
+      limitQuery(1),
+    ),
+  )
+  if (legacySnapshot.empty) {
     return null
   }
-  const docSnapshot = snapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
+  const legacyDoc = legacySnapshot.docs[0] as QueryDocumentSnapshot<UserDocument>
   return {
-    id: docSnapshot.id,
-    data: docSnapshot.data(),
+    id: legacyDoc.id,
+    data: legacyDoc.data(),
   }
 }
 
@@ -185,6 +201,9 @@ type DeleteOwnAccountResponse = {
   ok: boolean
 }
 
+type ResolveUsernameEmailResponse = {
+  email: string | null
+}
 // Use a callable to check availability before authentication.
 export async function isUsernameAvailablePublic(username: string): Promise<boolean> {
   const callable = httpsCallable<{ username: string }, UsernameAvailabilityResponse>(
@@ -198,6 +217,15 @@ export async function isUsernameAvailablePublic(username: string): Promise<boole
 export async function deleteOwnAccount(): Promise<void> {
   const callable = httpsCallable<void, DeleteOwnAccountResponse>(firebaseFunctions, "deleteOwnAccount")
   await callable()
+}
+
+export async function resolveUsernameEmail(username: string): Promise<string | null> {
+  const callable = httpsCallable<{ username: string }, ResolveUsernameEmailResponse>(
+    firebaseFunctions,
+    "resolveUsernameEmail",
+  )
+  const result = await callable({ username })
+  return result.data?.email ?? null
 }
 
 const buildFallbackUsername = (user: User) => {

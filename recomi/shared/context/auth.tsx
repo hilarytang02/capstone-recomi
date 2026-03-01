@@ -17,7 +17,7 @@ import {
 import { useRouter, usePathname, useRootNavigationState } from "expo-router";
 
 import { auth } from "../firebase/app";
-import { findUserByUsername, upsertUserProfileFromAuth } from "../api/users";
+import { findUserByUsername, resolveUsernameEmail, upsertUserProfileFromAuth } from "../api/users";
 import { doc, getDoc } from "firebase/firestore";
 import { firestore } from "../firebase/app";
 import { USERS_COLLECTION } from "../api/users";
@@ -183,11 +183,24 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       if (trimmedIdentifier.includes("@")) {
         emailToUse = trimmedIdentifier.toLowerCase();
       } else {
-        const record = await findUserByUsername(trimmedIdentifier);
-        if (!record || !record.data.email) {
+        try {
+          const record = await findUserByUsername(trimmedIdentifier);
+          if (record?.data.email) {
+            emailToUse = record.data.email;
+          }
+        } catch (err) {
+          const errCode =
+            typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : null;
+          if (errCode !== "permission-denied") {
+            throw err;
+          }
+        }
+        if (!emailToUse) {
+          emailToUse = await resolveUsernameEmail(trimmedIdentifier);
+        }
+        if (!emailToUse) {
           throw new Error("No account found for that username.");
         }
-        emailToUse = record.data.email;
       }
       await signInWithEmailAndPassword(auth, emailToUse, password);
       if (!auth.currentUser) {

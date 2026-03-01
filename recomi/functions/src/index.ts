@@ -78,6 +78,38 @@ export const checkUsernameAvailability = functionsV1
     return { available: snapshot.empty };
   });
 
+export const resolveUsernameEmail = functionsV1
+  .region("us-central1")
+  .https.onCall(async (data) => {
+    const raw = typeof data?.username === "string" ? data.username : "";
+    const normalized = sanitizeUsername(raw);
+    if (!normalized) {
+      throw new functionsV1.https.HttpsError("invalid-argument", "Username is required.");
+    }
+
+    const snapshot = await db
+      .collection(USERS_COLLECTION)
+      .where("usernameLowercase", "==", normalized)
+      .limit(1)
+      .get();
+
+    if (!snapshot.empty) {
+      const record = snapshot.docs[0].data() as { email?: string | null };
+      return { email: record.email ?? null };
+    }
+
+    const legacySnapshot = await db
+      .collection(USERS_COLLECTION)
+      .where("username", "==", normalized)
+      .limit(1)
+      .get();
+    if (legacySnapshot.empty) {
+      return { email: null };
+    }
+    const legacyRecord = legacySnapshot.docs[0].data() as { email?: string | null };
+    return { email: legacyRecord.email ?? null };
+  });
+
 export const deleteOwnAccount = functionsV1
   .region("us-central1")
   .https.onCall(async (_data, context) => {
