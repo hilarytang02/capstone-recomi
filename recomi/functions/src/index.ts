@@ -191,6 +191,7 @@ export const onInviteCreated = onDocumentCreated(
     const toUserId = data?.toUserId;
     const fromUserId = data?.fromUserId;
     const placeLabel = data?.placeLabel ?? "a place";
+    const message = typeof data?.message === "string" ? data.message.trim() : "";
     if (!toUserId || !fromUserId) return;
 
     const toUserSnap = await db.collection(USERS_COLLECTION).doc(toUserId).get();
@@ -209,12 +210,13 @@ export const onInviteCreated = onDocumentCreated(
       tokens,
       notification: {
         title: `${fromName} invited you`,
-        body: `Want to go to ${placeLabel} together?`,
+        body: message || `Want to go to ${placeLabel} together?`,
       },
       data: {
         type: "invite",
         fromUserId,
         placeLabel,
+        message,
       },
     };
 

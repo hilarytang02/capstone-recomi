@@ -10,6 +10,7 @@ type InviteItem = {
   id: string;
   type: "received" | "sent";
   title: string;
+  message: string | null;
   createdAt: Date;
   counterpartyId: string;
   counterpartyName: string | null;
@@ -99,6 +100,7 @@ export default function NotificationsScreen() {
         id: `${type}-${docId}`,
         type,
         title: data.placeLabel ?? "Invite",
+        message: data.message ? data.message.trim() : null,
         createdAt,
         counterpartyId,
         counterpartyName: profile?.displayName ?? null,
@@ -232,6 +234,11 @@ export default function NotificationsScreen() {
                   {item.type === "received" ? "From " : "To "}
                   {label}
                 </Text>
+                {item.message ? (
+                  <Text style={styles.cardMessage} numberOfLines={2}>
+                    {item.message}
+                  </Text>
+                ) : null}
               </View>
               <Text style={styles.time}>{formatInviteTime(item.createdAt)}</Text>
             </Pressable>
@@ -353,6 +360,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#64748b",
     marginTop: 2,
+  },
+  cardMessage: {
+    fontSize: 12,
+    color: "#0f172a",
+    marginTop: 6,
   },
   time: {
     fontSize: 11,
