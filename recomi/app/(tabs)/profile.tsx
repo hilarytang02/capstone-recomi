@@ -1451,6 +1451,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -2,
     right: -4,
+    zIndex: 2,
+    elevation: 2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 0,
