@@ -289,6 +289,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       return "/welcome";
     }
     if (user && !onboardingLoading && !onboardingComplete && !isOnboardingRoute) {
+      if (pathname?.startsWith("/signup")) {
+        return null;
+      }
       return "/onboarding";
     }
     if (user && onboardingComplete && (isOnboardingRoute || isPublicRoute)) {

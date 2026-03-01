@@ -181,6 +181,10 @@ type UsernameAvailabilityResponse = {
   available: boolean
 }
 
+type DeleteOwnAccountResponse = {
+  ok: boolean
+}
+
 // Use a callable to check availability before authentication.
 export async function isUsernameAvailablePublic(username: string): Promise<boolean> {
   const callable = httpsCallable<{ username: string }, UsernameAvailabilityResponse>(
@@ -189,6 +193,11 @@ export async function isUsernameAvailablePublic(username: string): Promise<boole
   )
   const result = await callable({ username })
   return Boolean(result.data?.available)
+}
+
+export async function deleteOwnAccount(): Promise<void> {
+  const callable = httpsCallable<void, DeleteOwnAccountResponse>(firebaseFunctions, "deleteOwnAccount")
+  await callable()
 }
 
 const buildFallbackUsername = (user: User) => {

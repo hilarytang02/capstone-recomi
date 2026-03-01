@@ -78,6 +78,29 @@ export const checkUsernameAvailability = functionsV1
     return { available: snapshot.empty };
   });
 
+export const deleteOwnAccount = functionsV1
+  .region("us-central1")
+  .https.onCall(async (_data, context) => {
+    const uid = context.auth?.uid;
+    if (!uid) {
+      throw new functionsV1.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    await admin.auth().deleteUser(uid);
+    await db
+      .collection(USERS_COLLECTION)
+      .doc(uid)
+      .delete()
+      .catch((err: unknown) => {
+        const error = err as { code?: string };
+        if (error.code !== "not-found") {
+          throw err;
+        }
+      });
+
+    return { ok: true };
+  });
+
 const normalizeCount = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) ? value : 0;
 

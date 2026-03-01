@@ -4,15 +4,18 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 
 import { useAuth } from "@/shared/context/auth";
-import { completeOnboarding, isUsernameAvailable, type UserDocument, USERS_COLLECTION } from "@/shared/api/users";
+import { completeOnboarding, deleteOwnAccount, isUsernameAvailable, type UserDocument, USERS_COLLECTION } from "@/shared/api/users";
 import { doc, getDoc } from "firebase/firestore";
 import { firestore } from "@/shared/firebase/app";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SAFE_AREA_PADDING } from "@/constants/layout";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { FirebaseError } from "firebase/app";
+import { clearSignupDraft } from "@/shared/state/signupDraft";
 
 // Guides new users through profile setup before unlocking the rest of the app.
 export default function OnboardingScreen() {
-  const { user, setOnboardingComplete } = useAuth();
+  const { user, setOnboardingComplete, signOut } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const safeTop = Math.max(insets.top, SAFE_AREA_PADDING.top);
@@ -28,6 +31,8 @@ export default function OnboardingScreen() {
   const [lastCheckedUsername, setLastCheckedUsername] = React.useState<string | null>(null);
   const [photoURL, setPhotoURL] = React.useState<string | null>(user?.photoURL ?? null);
   const [saving, setSaving] = React.useState(false);
+  const [backBusy, setBackBusy] = React.useState(false);
+  const stepStorageKey = "onboarding_step";
 
   const normalizedUsername = username.trim().toLowerCase();
 
@@ -62,6 +67,31 @@ export default function OnboardingScreen() {
       active = false;
     };
   }, [user?.uid]);
+
+  React.useEffect(() => {
+    let active = true;
+    const loadStep = async () => {
+      if (!user?.uid) return;
+      try {
+        const stored = await AsyncStorage.getItem(stepStorageKey);
+        if (!active) return;
+        if (stored === "2") {
+          setStep(2);
+        }
+      } catch (err) {
+        console.warn("Failed to restore onboarding step", err);
+      }
+    };
+    void loadStep();
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
+
+  React.useEffect(() => {
+    if (!user?.uid) return;
+    void AsyncStorage.setItem(stepStorageKey, String(step));
+  }, [step, user?.uid]);
 
   const validateUsername = React.useCallback((value: string) => {
     const normalized = value.trim().toLowerCase();
@@ -112,6 +142,44 @@ export default function OnboardingScreen() {
     setStep(2);
   };
 
+  const handleBack = React.useCallback(async () => {
+    if (step === 2) {
+      setStep(1);
+      return;
+    }
+    if (backBusy) return;
+    setBackBusy(true);
+    try {
+      await AsyncStorage.removeItem(stepStorageKey);
+    } catch (err) {
+      console.warn("Failed to clear onboarding step", err);
+    }
+    try {
+      if (user) {
+        await deleteOwnAccount();
+      }
+    } catch (err) {
+      const code =
+        err instanceof FirebaseError
+          ? err.code
+          : typeof err === "object" && err && "code" in err
+            ? String((err as { code?: unknown }).code)
+            : null;
+      console.error("Failed to delete user during onboarding back", err);
+      Alert.alert(
+        "Unable to delete account",
+        code === "functions/not-found" || code === "not-found"
+          ? "Account delete is not available yet. Please try again in a moment."
+          : "We couldn't delete your account. Please try again."
+      );
+      setBackBusy(false);
+      return;
+    }
+    router.replace("/signup");
+    await signOut().catch(() => {});
+    setBackBusy(false);
+  }, [backBusy, router, signOut, step, user]);
+
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -147,6 +215,8 @@ export default function OnboardingScreen() {
         bio: bio.trim() || null,
         photoURL: photoURL ?? null,
       });
+      await AsyncStorage.removeItem(stepStorageKey);
+      clearSignupDraft();
       setOnboardingComplete(true);
       router.replace("/(tabs)/map");
     } catch (err) {
@@ -162,9 +232,14 @@ export default function OnboardingScreen() {
       style={[styles.screen, { paddingTop: safeTop }]}
       contentContainerStyle={{ paddingBottom: safeBottom + 24, paddingHorizontal: 20, gap: 24 }}
     >
-      <View>
-        <Text style={styles.stepLabel}>Step {step} of 2</Text>
-        <Text style={styles.title}>{step === 1 ? "Set up your profile" : "Add a photo"}</Text>
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.stepLabel}>Step {step} of 2</Text>
+          <Text style={styles.title}>{step === 1 ? "Set up your profile" : "Add a photo"}</Text>
+        </View>
+        <Pressable onPress={handleBack} style={styles.backButton}>
+          <Text style={styles.backLabel}>Back</Text>
+        </Pressable>
       </View>
 
       {step === 1 ? (
@@ -342,5 +417,22 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "700",
     color: "#475569",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  backButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  backLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  headerText: {
+    flex: 1,
   },
 });

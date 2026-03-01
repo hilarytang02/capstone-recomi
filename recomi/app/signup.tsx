@@ -7,6 +7,7 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/shared/context/auth";
 import { auth } from "@/shared/firebase/app";
 import { fetchSignInMethodsForEmail } from "firebase/auth";
+import { getSignupDraft, setSignupDraft } from "@/shared/state/signupDraft";
 
 // Basic client-side validation to catch obvious typos before hitting Firebase.
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -16,9 +17,10 @@ export default function SignupScreen() {
   const { createAccountWithEmail, signInWithGoogle, isSigningIn } = useAuth();
   const router = useRouter();
 
-  const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const draft = React.useMemo(() => getSignupDraft(), []);
+  const [email, setEmail] = React.useState(draft?.email ?? "");
+  const [password, setPassword] = React.useState(draft?.password ?? "");
+  const [confirmPassword, setConfirmPassword] = React.useState(draft?.confirmPassword ?? "");
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirm, setShowConfirm] = React.useState(false);
 
@@ -47,6 +49,11 @@ export default function SignupScreen() {
     setFormError(null);
     setSubmitting(true);
     try {
+      setSignupDraft({
+        email: email.trim(),
+        password,
+        confirmPassword,
+      });
       const existingMethods = await fetchSignInMethodsForEmail(auth, email.trim().toLowerCase());
       if (existingMethods.length > 0) {
         setFormError("This email is already tied to an existing account.");
