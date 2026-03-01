@@ -410,14 +410,6 @@ export default function ProfileScreen() {
     }
   }, [signOut]);
 
-  if (listsLoading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#0f172a" />
-      </View>
-    );
-  }
-
   const pinsForMap = React.useMemo<SavedEntry[]>(() => {
     if (!selectedGroup) return [];
     return [...selectedGroup.wishlist, ...selectedGroup.favourite];
@@ -616,6 +608,14 @@ export default function ProfileScreen() {
       current && likedLists.some((item) => item.listId === current) ? current : null,
     );
   }, [likedLists]);
+
+  if (listsLoading) {
+    return (
+      <View style={styles.loader}>
+        <ActivityIndicator size="large" color="#0f172a" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>

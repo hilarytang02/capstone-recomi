@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
@@ -94,6 +95,9 @@ export default function UserProfileScreen() {
   const [followingCount, setFollowingCount] = React.useState<number>(0);
   const [mapModalVisible, setMapModalVisible] = React.useState(false);
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
+  const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
+  const [listPickerOpen, setListPickerOpen] = React.useState(false);
+  const [listSearch, setListSearch] = React.useState("");
   const previewMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const modalMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const feedbackAnim = React.useRef(new Animated.Value(0)).current;
@@ -181,6 +185,7 @@ export default function UserProfileScreen() {
   }, [profile?.likedLists]);
 
   const likedListsVisible = profile?.likedListsVisible !== false;
+  const [activeProfileTab, setActiveProfileTab] = React.useState<"lists" | "liked">("lists");
 
   // Helps render wishlist/favourite buckets without recomputing for each list.
   const entriesByList = React.useMemo(() => {
@@ -190,6 +195,27 @@ export default function UserProfileScreen() {
     }, {});
   }, [entries]);
 
+  const listStats = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    const wishlistCounts = new Map<string, number>();
+    const favouriteCounts = new Map<string, number>();
+    const recency = new Map<string, number>();
+    entries.forEach((entry) => {
+      counts.set(entry.listId, (counts.get(entry.listId) ?? 0) + 1);
+      if (entry.bucket === "wishlist") {
+        wishlistCounts.set(entry.listId, (wishlistCounts.get(entry.listId) ?? 0) + 1);
+      }
+      if (entry.bucket === "favourite") {
+        favouriteCounts.set(entry.listId, (favouriteCounts.get(entry.listId) ?? 0) + 1);
+      }
+      const last = recency.get(entry.listId) ?? 0;
+      if (entry.savedAt > last) {
+        recency.set(entry.listId, entry.savedAt);
+      }
+    });
+    return { counts, wishlistCounts, favouriteCounts, recency };
+  }, [entries]);
+
   // Hide lists the viewer shouldn't see based on profile visibility + follow status.
   const visibleLists = React.useMemo(() => {
     return lists.filter((list) =>
@@ -197,8 +223,22 @@ export default function UserProfileScreen() {
     );
   }, [isFollowingUser, isSelf, lists]);
 
+  const MAX_VISIBLE_LISTS = 6;
+  const sortedLists = React.useMemo(() => {
+    return [...visibleLists].sort((a, b) => {
+      const aRecency = listStats.recency.get(a.id) ?? 0;
+      const bRecency = listStats.recency.get(b.id) ?? 0;
+      if (aRecency === bRecency) return a.name.localeCompare(b.name);
+      return bRecency - aRecency;
+    });
+  }, [listStats.recency, visibleLists]);
+  const galleryLists = React.useMemo(
+    () => sortedLists.slice(0, MAX_VISIBLE_LISTS),
+    [sortedLists],
+  );
+
   const groupedLists = React.useMemo<GroupedList[]>(() => {
-    return visibleLists.map((definition) => {
+    return galleryLists.map((definition) => {
       const related = entriesByList[definition.id] ?? [];
       return {
         definition,
@@ -206,19 +246,20 @@ export default function UserProfileScreen() {
         favourite: related.filter((entry) => entry.bucket === "favourite"),
       };
     });
-  }, [entriesByList, visibleLists]);
+  }, [entriesByList, galleryLists]);
 
   const [selectedListId, setSelectedListId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!visibleLists.length) {
+    if (!galleryLists.length) {
       setSelectedListId(null);
       return;
     }
-    if (!selectedListId || !visibleLists.some((list) => list.id === selectedListId)) {
-      setSelectedListId(visibleLists[0].id);
+    if (!selectedListId || !galleryLists.some((list) => list.id === selectedListId)) {
+      setSelectedListId(galleryLists[0].id);
     }
-  }, [selectedListId, visibleLists]);
+  }, [galleryLists, selectedListId]);
+
 
   const selectedGroup = React.useMemo(
     () => groupedLists.find((group) => group.definition.id === selectedListId),
@@ -245,6 +286,19 @@ export default function UserProfileScreen() {
   }, [regionForMap, focusRegionOnMaps]);
 
   const canShowLikedLists = likedListsFromProfile.length > 0 && (isSelf || likedListsVisible);
+  React.useEffect(() => {
+    if (!canShowLikedLists && activeProfileTab === "liked") {
+      setActiveProfileTab("lists");
+    }
+  }, [activeProfileTab, canShowLikedLists]);
+
+  const wishlistCount = entries.filter((entry) => entry.bucket === "wishlist").length;
+  const favouriteCount = entries.filter((entry) => entry.bucket === "favourite").length;
+  const totalSavedCount = wishlistCount + favouriteCount;
+  const profileDisplayName = profile?.displayName ?? profile?.username ?? "Unknown user";
+  const profileUsername = profile?.username ?? null;
+  const profileBio = profile?.bio ?? null;
+  const profilePhoto = profile?.photoURL ?? null;
 
   const focusEntryRegion = React.useCallback(
     (entry: SavedEntry) => {
@@ -317,6 +371,16 @@ export default function UserProfileScreen() {
       }
     };
   }, []);
+
+  React.useEffect(() => {
+    if (!likedListsFromProfile.length) {
+      setExpandedLikedId(null);
+      return;
+    }
+    setExpandedLikedId((current) =>
+      current && likedListsFromProfile.some((item) => item.listId === current) ? current : null,
+    );
+  }, [likedListsFromProfile]);
 
   const handleMarkerPress = React.useCallback(
     (entry: SavedEntry) => {
@@ -491,243 +555,428 @@ export default function UserProfileScreen() {
         </Animated.View>
       ) : null}
       <ScrollView
-        style={styles.container}
+        style={{ flex: 1 }}
         contentContainerStyle={[
           styles.contentContainer,
           { paddingTop: scrollTopPadding },
         ]}
       >
-        <View style={styles.header}>
-        {profile.photoURL ? (
-          <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
-        ) : (
-          <View style={styles.placeholderAvatar}>
-            <Text style={styles.placeholderInitial}>
-              {(profile.displayName ?? profile.username ?? profile.email ?? "?")
-                .slice(0, 1)
-                .toUpperCase()}
-            </Text>
-          </View>
-        )}
-
-        <View style={styles.headerText}>
-          <Text style={styles.displayName}>
-            {profile.displayName ?? profile.username ?? "Unknown user"}
-          </Text>
-          {profile.username ? <Text style={styles.username}>@{profile.username}</Text> : null}
-          {profile.homeCity ? <Text style={styles.meta}>{profile.homeCity}</Text> : null}
-        </View>
-      </View>
-
-      <View style={styles.statsRow}>
-        <Stat label="Followers" value={followersCount} />
-        <Stat label="Following" value={followingCount} />
-        <Stat label="Lists" value={visibleLists.length} />
-      </View>
-
-      {canFollow ? (
-        <View>
-          <Pressable
-            style={[
-              styles.followButton,
-              isFollowingUser ? styles.followButtonSecondary : styles.followButtonPrimary,
-              (followBusy || followStatusLoading) && styles.followButtonDisabled,
-            ]}
-            disabled={followBusy || followStatusLoading}
-            onPress={handleFollowToggle}
-          >
-            <Text
-              style={isFollowingUser ? styles.followLabelSecondary : styles.followLabelPrimary}
-            >
-              {followStatusLoading ? "..." : isFollowingUser ? "Following" : "Follow"}
-            </Text>
-          </Pressable>
-          {followError ? <Text style={styles.followError}>{followError}</Text> : null}
-        </View>
-      ) : null}
-
-      {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Lists</Text>
-      </View>
-
-      {groupedLists.length === 0 ? (
-        <Text style={styles.emptyState}>
-          {isSelf ? "You haven't created any lists yet." : "No lists to show yet."}
-        </Text>
-      ) : (
-        <>
-          <FlatList
-            data={groupedLists}
-            horizontal
-            keyExtractor={(item) => item.definition.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.gallery}
-          renderItem={({ item }) => {
-            const total = item.wishlist.length + item.favourite.length;
-            const isSelected = item.definition.id === selectedListId;
-            return (
-              <Pressable
-                style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
-                onPress={() => setSelectedListId(item.definition.id)}
-              >
-                <Text style={styles.galleryTitle} numberOfLines={2}>
-                  {item.definition.name}
+        <View style={styles.profileHeader}>
+          <View style={styles.profileInfoRow}>
+            {profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.profileAvatar} />
+            ) : (
+              <View style={styles.profileAvatarPlaceholder}>
+                <Text style={styles.profileAvatarInitial}>
+                  {(profileDisplayName ?? "?").slice(0, 1).toUpperCase()}
                 </Text>
-                <View style={styles.galleryMeta}>
-                  <Text style={styles.galleryCount}>
-                      {total} {total === 1 ? "place" : "places"}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            }}
-          />
-
-          {selectedGroup ? (
-            <View style={styles.detailSection}>
-              <View style={styles.detailHeader}>
-                <View style={styles.detailHeaderText}>
-                  <Text style={styles.detailTitle}>{selectedGroup.definition.name}</Text>
-                  {selectedGroup.definition.description ? (
-                    <Text style={styles.listDescription}>{selectedGroup.definition.description}</Text>
-                  ) : null}
-                  <Text style={styles.listMeta}>
-                    {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
-                  </Text>
+              </View>
+            )}
+            <View style={styles.profileMetricsBlock}>
+              {profileUsername ? (
+                <Text style={styles.profileUsername}>@{profileUsername}</Text>
+              ) : null}
+              <View style={styles.metricsRow}>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricValue}>{totalSavedCount}</Text>
+                  <Text style={styles.metricLabel}>Places</Text>
                 </View>
-                {profile && (
-                  <Pressable
-                    style={[
-                      styles.detailStarButton,
-                      isListLiked(profile.id, selectedGroup.definition.id) &&
-                        styles.detailStarButtonActive,
-                    ]}
-                    onPress={() => handleToggleListLike(selectedGroup.definition)}
-                    hitSlop={12}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      isListLiked(profile.id, selectedGroup.definition.id) ? "Unstar list" : "Star list"
-                    }
-                  >
-                    <FontAwesome
-                      name={
-                        isListLiked(profile.id, selectedGroup.definition.id) ? "star" : "star-o"
-                      }
-                      size={18}
-                      color={
-                        isListLiked(profile.id, selectedGroup.definition.id) ? "#f59e0b" : "#0f172a"
-                      }
-                    />
-                  </Pressable>
-                )}
-              </View>
-              <View style={styles.mapPreviewWrapper}>
-                <MapView
-                  ref={previewMapRef}
-                  key={selectedGroup.definition.id}
-                  style={styles.detailMap}
-                  initialRegion={regionForMap}
-                >
-                {pinsForMap.map((entry) => (
-                  <Marker
-                    key={makeEntryKey(entry)}
-                    coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
-                    title={entry.pin.label}
-                    pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
-                    onPress={() => handleMarkerPress(entry)}
-                  />
-                ))}
-              </MapView>
-                <Pressable
-                  style={styles.mapExpandOverlay}
-                  onPress={openExpandedMap}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open map with all pins"
-                >
-                  <View style={styles.mapExpandHint}>
-                    <FontAwesome name="expand" size={14} color="#fff" />
-                    <Text style={styles.mapExpandHintText}>Open map</Text>
-                  </View>
-                </Pressable>
-              </View>
-
-              <View style={styles.bucketSection}>
-                <Text style={styles.bucketTitle}>Wishlist</Text>
-                {selectedGroup.wishlist.length ? (
-                  selectedGroup.wishlist.map((entry) => (
-                    <Pressable
-                      key={`wish-${makeEntryKey(entry)}`}
-                      onPress={() => handleEntryFocus(entry)}
-                      style={styles.bucketItemButton}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Focus map on ${entry.pin.label}`}
-                    >
-                      <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
-                    </Pressable>
-                  ))
-                ) : (
-                  <Text style={styles.emptyState}>No wishlist saves yet.</Text>
-                )}
-              </View>
-
-              <View style={styles.bucketSection}>
-                <Text style={styles.bucketTitle}>Favourite</Text>
-                {selectedGroup.favourite.length ? (
-                  selectedGroup.favourite.map((entry) => (
-                    <Pressable
-                      key={`fav-${makeEntryKey(entry)}`}
-                      onPress={() => handleEntryFocus(entry)}
-                      style={styles.bucketItemButton}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Focus map on ${entry.pin.label}`}
-                    >
-                      <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
-                    </Pressable>
-                  ))
-                ) : (
-                  <Text style={styles.emptyState}>No favourite saves yet.</Text>
-                )}
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricValue}>{followersCount}</Text>
+                  <Text style={styles.metricLabel}>Followers</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricValue}>{followingCount}</Text>
+                  <Text style={styles.metricLabel}>Following</Text>
+                </View>
               </View>
             </View>
-          ) : null}
-        </>
-      )}
-      {canShowLikedLists ? (
-        <View style={styles.likedSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Liked Lists</Text>
-            {!likedListsVisible && isSelf ? (
-              <Text style={styles.likedHiddenLabel}>Hidden from visitors</Text>
-            ) : null}
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.likedScroll}
-          >
-            {likedListsFromProfile.map((item) => (
-              <View key={`${item.ownerId}-${item.listId}`} style={styles.likedCard}>
-                <Text style={styles.likedCardTitle} numberOfLines={2}>
-                  {item.listName}
-                </Text>
-                <Text style={styles.likedCardOwner} numberOfLines={1}>
-                  by {item.ownerDisplayName ?? item.ownerUsername ?? "Unknown user"}
-                </Text>
-                {item.description ? (
-                  <Text style={styles.likedCardDescription} numberOfLines={2}>
-                    {item.description}
+          <View style={styles.profileDetails}>
+            <Text style={styles.profileName}>{profileDisplayName}</Text>
+            {profileBio ? <Text style={styles.profileBio}>{profileBio}</Text> : null}
+            <View style={styles.profileActions}>
+              {canFollow ? (
+                <Pressable
+                  style={[
+                    styles.editAccountButton,
+                    (followBusy || followStatusLoading) && styles.editAccountButtonDisabled,
+                  ]}
+                  disabled={followBusy || followStatusLoading}
+                  onPress={handleFollowToggle}
+                >
+                  <Text
+                    style={styles.editAccountLabel}
+                  >
+                    {followStatusLoading ? "..." : isFollowingUser ? "Following" : "Follow"}
                   </Text>
-                ) : null}
-              </View>
-            ))}
-          </ScrollView>
+                </Pressable>
+              ) : null}
+            </View>
+            {followError ? <Text style={styles.followError}>{followError}</Text> : null}
+          </View>
         </View>
-      ) : null}
+
+        <View style={styles.profileTabs}>
+          <Pressable
+            onPress={() => setActiveProfileTab("lists")}
+            style={[
+              styles.profileTab,
+              activeProfileTab === "lists" && styles.profileTabActive,
+            ]}
+          >
+            <Text
+              style={[
+                styles.profileTabText,
+                activeProfileTab === "lists" && styles.profileTabTextActive,
+              ]}
+            >
+              Lists
+            </Text>
+          </Pressable>
+          {canShowLikedLists ? (
+            <Pressable
+              onPress={() => setActiveProfileTab("liked")}
+              style={[
+                styles.profileTab,
+                activeProfileTab === "liked" && styles.profileTabActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.profileTabText,
+                  activeProfileTab === "liked" && styles.profileTabTextActive,
+                ]}
+              >
+                Liked
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        {activeProfileTab === "lists" ? (
+          <>
+            {groupedLists.length === 0 ? (
+              <Text style={styles.emptyState}>
+                {isSelf ? "You haven't created any lists yet." : "No lists to show yet."}
+              </Text>
+            ) : (
+              <>
+                <FlatList
+                  data={groupedLists}
+                  horizontal
+                  keyExtractor={(item) => item.definition.id}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.gallery}
+                  ListFooterComponent={
+                    sortedLists.length > MAX_VISIBLE_LISTS
+                      ? () => (
+                          <View style={styles.galleryFooterRow}>
+                            <Pressable
+                              style={styles.galleryAllChip}
+                              onPress={() => {
+                                setListSearch("");
+                                setListPickerOpen(true);
+                              }}
+                            >
+                              <Text style={styles.galleryAllChipLabel}>All</Text>
+                              <View style={styles.galleryAllChipCount}>
+                                <Text style={styles.galleryAllChipCountText}>{sortedLists.length}</Text>
+                              </View>
+                            </Pressable>
+                          </View>
+                        )
+                      : undefined
+                  }
+                  ListFooterComponentStyle={styles.galleryFooter}
+                  renderItem={({ item }) => {
+                    const total = item.wishlist.length + item.favourite.length;
+                    const isSelected = item.definition.id === selectedListId;
+                    return (
+                      <Pressable
+                        style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
+                        onPress={() => setSelectedListId(item.definition.id)}
+                      >
+                        <View style={styles.listChipRow}>
+                          <Text style={styles.listChipTitle} numberOfLines={1} ellipsizeMode="tail">
+                            {item.definition.name}
+                          </Text>
+                          <View style={styles.listChipCount}>
+                            <Text style={styles.listChipCountText}>{total}</Text>
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  }}
+                />
+
+                {selectedGroup ? (
+                  <View style={styles.detailSection}>
+                    <View style={styles.detailHeader}>
+                      <View style={styles.detailHeaderText}>
+                        <Text style={styles.detailTitle}>{selectedGroup.definition.name}</Text>
+                        {selectedGroup.definition.description ? (
+                          <Text style={styles.listDescription}>
+                            {selectedGroup.definition.description}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.listMeta}>
+                          {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
+                        </Text>
+                      </View>
+                      {profile && (
+                        <Pressable
+                          style={[
+                            styles.detailStarButton,
+                            isListLiked(profile.id, selectedGroup.definition.id) &&
+                              styles.detailStarButtonActive,
+                          ]}
+                          onPress={() => handleToggleListLike(selectedGroup.definition)}
+                          hitSlop={12}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            isListLiked(profile.id, selectedGroup.definition.id)
+                              ? "Unstar list"
+                              : "Star list"
+                          }
+                        >
+                          <FontAwesome
+                            name={
+                              isListLiked(profile.id, selectedGroup.definition.id) ? "star" : "star-o"
+                            }
+                            size={18}
+                            color={
+                              isListLiked(profile.id, selectedGroup.definition.id) ? "#f59e0b" : "#0f172a"
+                            }
+                          />
+                        </Pressable>
+                      )}
+                    </View>
+                    <View style={styles.mapPreviewWrapper}>
+                      <MapView
+                        ref={previewMapRef}
+                        key={selectedGroup.definition.id}
+                        style={styles.detailMap}
+                        initialRegion={regionForMap}
+                      >
+                        {pinsForMap.map((entry) => (
+                          <Marker
+                            key={makeEntryKey(entry)}
+                            coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                            title={entry.pin.label}
+                            pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                            onPress={() => handleMarkerPress(entry)}
+                          />
+                        ))}
+                      </MapView>
+                      <Pressable
+                        style={styles.mapExpandOverlay}
+                        onPress={openExpandedMap}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open map with all pins"
+                      >
+                        <View style={styles.mapExpandHint}>
+                          <FontAwesome name="expand" size={14} color="#fff" />
+                          <Text style={styles.mapExpandHintText}>Open map</Text>
+                        </View>
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.bucketSection}>
+                      <Text style={styles.bucketTitle}>Wishlist</Text>
+                      {selectedGroup.wishlist.length ? (
+                        selectedGroup.wishlist.map((entry) => (
+                          <Pressable
+                            key={`wish-${makeEntryKey(entry)}`}
+                            onPress={() => handleEntryFocus(entry)}
+                            style={styles.bucketItemButton}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Focus map on ${entry.pin.label}`}
+                          >
+                            <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                          </Pressable>
+                        ))
+                      ) : (
+                        <Text style={styles.emptyState}>No wishlist saves yet.</Text>
+                      )}
+                    </View>
+
+                    <View style={styles.bucketSection}>
+                      <Text style={styles.bucketTitle}>Favourite</Text>
+                      {selectedGroup.favourite.length ? (
+                        selectedGroup.favourite.map((entry) => (
+                          <Pressable
+                            key={`fav-${makeEntryKey(entry)}`}
+                            onPress={() => handleEntryFocus(entry)}
+                            style={styles.bucketItemButton}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Focus map on ${entry.pin.label}`}
+                          >
+                            <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                          </Pressable>
+                        ))
+                      ) : (
+                        <Text style={styles.emptyState}>No favourite saves yet.</Text>
+                      )}
+                    </View>
+                  </View>
+                ) : null}
+              </>
+            )}
+          </>
+        ) : null}
+
+        {activeProfileTab === "liked" && canShowLikedLists ? (
+          <View style={styles.likedSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Liked Lists</Text>
+            </View>
+            {likedListsFromProfile.length ? (
+              likedListsFromProfile.map((item) => {
+                const pins = [...item.wishlist, ...item.favourite];
+                const region = computeRegion(pins);
+                const isExpanded = expandedLikedId === item.listId;
+                return (
+                  <View key={`${item.ownerId}-${item.listId}`} style={styles.likedAccordionCard}>
+                    <Pressable
+                      style={styles.likedAccordionHeader}
+                      onPress={() =>
+                        setExpandedLikedId((current) => (current === item.listId ? null : item.listId))
+                      }
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.likedCardTitle} numberOfLines={1}>
+                          {item.listName}
+                        </Text>
+                        <Text style={styles.likedCardOwner} numberOfLines={1}>
+                          by {item.ownerDisplayName ?? item.ownerUsername ?? "Unknown user"}
+                        </Text>
+                      </View>
+                      <FontAwesome
+                        name={isExpanded ? "chevron-up" : "chevron-down"}
+                        size={16}
+                        color="#0f172a"
+                      />
+                    </Pressable>
+                    {isExpanded ? (
+                      <View style={styles.likedAccordionBody}>
+                        <MapView
+                          style={styles.likedMap}
+                          initialRegion={region}
+                          key={`${item.listId}-liked-map`}
+                        >
+                          {pins.map((entry) => (
+                            <Marker
+                              key={`${item.listId}-pin-${entry.savedAt}`}
+                              coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
+                              title={entry.pin.label}
+                              pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
+                            />
+                          ))}
+                        </MapView>
+                        <View style={styles.likedBucketSection}>
+                          <Text style={styles.bucketTitle}>Wishlist</Text>
+                          {item.wishlist.length ? (
+                            item.wishlist.map((entry) => (
+                              <Text key={`liked-wish-${entry.savedAt}`} style={styles.bucketItem}>
+                                • {entry.pin.label}
+                              </Text>
+                            ))
+                          ) : (
+                            <Text style={styles.emptyState}>No wishlist saves yet.</Text>
+                          )}
+                        </View>
+                        <View style={styles.likedBucketSection}>
+                          <Text style={styles.bucketTitle}>Favourite</Text>
+                          {item.favourite.length ? (
+                            item.favourite.map((entry) => (
+                              <Text key={`liked-fav-${entry.savedAt}`} style={styles.bucketItem}>
+                                • {entry.pin.label}
+                              </Text>
+                            ))
+                          ) : (
+                            <Text style={styles.emptyState}>No favourite saves yet.</Text>
+                          )}
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })
+            ) : (
+              <Text style={styles.emptyState}>No liked lists yet.</Text>
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
       <PinDetailSheet entry={activePinEntry} onClose={closeActivePinSheet} bottomInset={insets.bottom} />
+
+      <Modal
+        visible={listPickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setListPickerOpen(false)}
+      >
+        <View style={styles.listPickerOverlay}>
+          <View style={styles.listPickerSheet}>
+            <View style={styles.listPickerHeader}>
+              <Text style={styles.listPickerTitle}>All lists</Text>
+              <Pressable onPress={() => setListPickerOpen(false)} hitSlop={8}>
+                <Text style={styles.listPickerClose}>Close</Text>
+              </Pressable>
+            </View>
+            <View style={styles.listPickerSearchWrap}>
+              <TextInput
+                value={listSearch}
+                onChangeText={setListSearch}
+                placeholder="Search lists"
+                style={styles.listPickerSearchInput}
+              />
+            </View>
+            <FlatList
+              data={sortedLists.filter((list) =>
+                list.name.toLowerCase().includes(listSearch.trim().toLowerCase())
+              )}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listPickerList}
+              renderItem={({ item }) => {
+                const total = listStats.counts.get(item.id) ?? 0;
+                const wishlist = listStats.wishlistCounts.get(item.id) ?? 0;
+                const favourite = listStats.favouriteCounts.get(item.id) ?? 0;
+                const savesCount = item.savesCount ?? 0;
+                const isSelected = item.id === selectedListId;
+                return (
+                  <Pressable
+                    style={[styles.listPickerRow, isSelected && styles.listPickerRowActive]}
+                    onPress={() => {
+                      setSelectedListId(item.id);
+                      setListPickerOpen(false);
+                    }}
+                  >
+                    <View style={styles.listPickerIcon}>
+                      <FontAwesome name="bookmark" size={14} color="#94a3b8" />
+                    </View>
+                    <View style={styles.listPickerText}>
+                      <Text style={styles.listPickerName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={styles.listPickerMetaText}>
+                        {total} places • {wishlist} wishlist • {favourite} favourite • {savesCount} saves
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={styles.listPickerEmpty}>
+                  <Text style={styles.listPickerEmptyText}>No lists found.</Text>
+                </View>
+              }
+            />
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         transparent
@@ -782,21 +1031,8 @@ export default function UserProfileScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-  },
-  container: {
     flex: 1,
     backgroundColor: "#f8fafc",
   },
@@ -817,76 +1053,105 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 24,
   },
-  header: {
+  profileHeader: {
+    gap: 16,
+  },
+  profileInfoRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 16,
   },
-  avatar: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+  profileAvatar: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
   },
-  placeholderAvatar: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+  profileAvatarPlaceholder: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
   },
-  placeholderInitial: {
-    fontSize: 32,
-    fontWeight: "600",
+  profileAvatarInitial: {
+    fontSize: 26,
+    fontWeight: "700",
     color: "#475569",
   },
-  headerText: {
+  profileMetricsBlock: {
     flex: 1,
   },
-  displayName: {
+  profileUsername: {
+    fontSize: 14,
+    color: "#94a3b8",
+    marginBottom: 8,
+    fontWeight: "600",
+    letterSpacing: 0.2,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    gap: 14,
+  },
+  metricItem: {
+    gap: 4,
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  metricLabel: {
+    fontSize: 11,
+    color: "#64748b",
+  },
+  profileDetails: {
+    gap: 8,
+  },
+  profileName: {
     fontSize: 22,
     fontWeight: "700",
     color: "#0f172a",
   },
-  username: {
-    fontSize: 16,
-    color: "#475569",
-    marginTop: 4,
-  },
-  meta: {
-    color: "#64748b",
-    marginTop: 8,
-  },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderRadius: 16,
-    backgroundColor: "#fff",
-    padding: 16,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 1,
-  },
-  stat: {
-    alignItems: "center",
-    flex: 1,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: "700",
+  profileBio: {
+    fontSize: 14,
     color: "#0f172a",
+    marginTop: 6,
+    lineHeight: 20,
   },
-  statLabel: {
+  profileActions: {
+    flexDirection: "row",
     marginTop: 4,
-    fontSize: 13,
-    color: "#64748b",
   },
-  bio: {
-    fontSize: 16,
-    lineHeight: 22,
-    color: "#1e293b",
+  profileTabs: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+    backgroundColor: "#e2e8f0",
+    borderRadius: 16,
+    padding: 4,
+  },
+  profileTab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  profileTabActive: {
+    backgroundColor: "#ffffff",
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  profileTabText: {
+    fontSize: 12,
+    color: "#64748b",
+    fontWeight: "600",
+  },
+  profileTabTextActive: {
+    color: "#0f172a",
   },
   sectionHeader: {
     flexDirection: "row",
@@ -912,39 +1177,178 @@ const styles = StyleSheet.create({
     color: "#94a3b8",
   },
   gallery: {
-    gap: 12,
-    paddingBottom: 8,
+    gap: 10,
+    paddingVertical: 6,
   },
-  galleryCard: {
-    width: 170,
-    borderRadius: 16,
-    backgroundColor: "#fff",
-    padding: 16,
-    marginRight: 12,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 1,
+  galleryFooter: {
+    paddingRight: 12,
   },
-  galleryCardSelected: {
-    borderWidth: 2,
-    borderColor: "#0f172a",
-  },
-  galleryTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#0f172a",
-    marginBottom: 12,
-  },
-  galleryMeta: {
+  galleryFooterRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 10,
   },
-  galleryCount: {
-    fontSize: 13,
+  galleryAllChip: {
+    height: 50,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#cbd5f5",
+    borderStyle: "dashed",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  galleryAllChipLabel: {
+    fontSize: 12,
+    fontWeight: "600",
     color: "#475569",
+  },
+  galleryAllChipCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: "#eef2ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  galleryAllChipCountText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#4338ca",
+  },
+  galleryCard: {
+    width: 160,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    minHeight: 50,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  galleryCardSelected: {
+    borderColor: "#c7d2fe",
+    backgroundColor: "#f8faff",
+    borderBottomWidth: 2,
+    borderBottomColor: "#818cf8",
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  listChipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  listChipTitle: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  listChipCount: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: "#eef2ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listChipCountText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#4338ca",
+  },
+  listPickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.25)",
+    justifyContent: "flex-end",
+  },
+  listPickerSheet: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    gap: 12,
+    maxHeight: "80%",
+  },
+  listPickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  listPickerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  listPickerClose: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  listPickerSearchWrap: {
+    backgroundColor: "#f1f5f9",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  listPickerSearchInput: {
+    fontSize: 14,
+    color: "#0f172a",
+  },
+  listPickerList: {
+    paddingBottom: 8,
+    gap: 8,
+  },
+  listPickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#f8fafc",
+  },
+  listPickerRowActive: {
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+    backgroundColor: "#eef2ff",
+  },
+  listPickerIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listPickerText: {
+    flex: 1,
+    gap: 2,
+  },
+  listPickerName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  listPickerMetaText: {
+    fontSize: 11,
+    color: "#64748b",
+  },
+  listPickerEmpty: {
+    paddingVertical: 20,
+    alignItems: "center",
+  },
+  listPickerEmptyText: {
+    fontSize: 13,
+    color: "#94a3b8",
   },
   detailSection: {
     backgroundColor: "#fff",
@@ -1035,68 +1439,64 @@ const styles = StyleSheet.create({
     marginTop: 24,
     gap: 12,
   },
-  likedHiddenLabel: {
-    fontSize: 12,
-    color: "#94a3b8",
+  likedAccordionCard: {
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
-  likedScroll: {
+  likedAccordionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
-    paddingVertical: 4,
   },
-  likedCard: {
-    width: 200,
-    borderRadius: 18,
-    backgroundColor: "#fff",
-    padding: 16,
-    marginRight: 12,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+  likedAccordionBody: {
+    marginTop: 10,
+    gap: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+  },
+  likedMap: {
+    height: 150,
+    borderRadius: 12,
+  },
+  likedBucketSection: {
+    gap: 4,
   },
   likedCardTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
     color: "#0f172a",
   },
   likedCardOwner: {
-    fontSize: 14,
-    color: "#475569",
-    marginTop: 6,
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 4,
   },
   likedCardDescription: {
     fontSize: 13,
     color: "#64748b",
     marginTop: 8,
   },
-  followButton: {
-    borderRadius: 999,
-    paddingVertical: 12,
+  editAccountButton: {
+    flex: 1,
     alignItems: "center",
-    justifyContent: "center",
-    marginTop: 12,
-  },
-  followButtonPrimary: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
     backgroundColor: "#0f172a",
   },
-  followButtonSecondary: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#cbd5f5",
-  },
-  followButtonDisabled: {
+  editAccountButtonDisabled: {
     opacity: 0.6,
   },
-  followLabelPrimary: {
-    color: "#fff",
-    fontSize: 16,
+  editAccountLabel: {
+    fontSize: 14,
     fontWeight: "600",
-  },
-  followLabelSecondary: {
-    color: "#0f172a",
-    fontSize: 16,
-    fontWeight: "600",
+    color: "#ffffff",
   },
   followError: {
     marginTop: 6,
