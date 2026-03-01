@@ -4,7 +4,7 @@ Recomi is an Expo Router + React Native application for discovering, saving, and
 
 ## Requirements
 
-- Node.js 18+ (matches Expo SDK 54 support)
+- Node.js 20+ (Firebase CLI v15+ requires Node 20+; Expo SDK 54 supports 18+ but 20 is recommended)
 - npm 9+ (ships with recent Node versions)
 - Xcode 15 / Android Studio Giraffe or newer for native builds
 - Firebase project with the following enabled:
@@ -89,7 +89,8 @@ Refer to `package.json` for the full list.
 
 ## Firebase deployment (optional)
 
-If you make changes to `firestore.rules` or `recomi/functions/`, use the Firebase CLI:
+If you make changes to `firestore.rules` or `recomi/functions/`, use the Firebase CLI.
+Functions are compiled on deploy via `firebase.json` predeploy:
 
 ```bash
 npx firebase login
