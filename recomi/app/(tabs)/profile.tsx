@@ -19,7 +19,7 @@ import {
   Switch,
 } from "react-native";
 import MapView, { Marker, type Region } from "../../components/MapView";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import {
@@ -635,7 +635,7 @@ export default function ProfileScreen() {
   }, [likedLists]);
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       {listsLoading ? (
         <View style={styles.loader}>
           <ActivityIndicator size="large" color="#0f172a" />
@@ -643,9 +643,11 @@ export default function ProfileScreen() {
       ) : null}
       <ScrollView
         style={{ flex: 1 }}
+        bounces={false}
+        alwaysBounceVertical={false}
         contentContainerStyle={[
           styles.container,
-          { paddingTop: insets.top + 24 },
+          { paddingTop: 24 },
         ]}
       >
         <View style={styles.profileHeader}>
@@ -1377,7 +1379,7 @@ export default function ProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 

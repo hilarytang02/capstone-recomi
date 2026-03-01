@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 
 import { firestore } from "@/shared/firebase/app";
@@ -665,7 +665,7 @@ export default function UserProfileScreen() {
   const scrollTopPadding = Math.max(insets.top, 16) + (feedbackMessage ? 40 : 0);
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
       {feedbackMessage ? (
         <Animated.View
           style={[
@@ -690,9 +690,11 @@ export default function UserProfileScreen() {
       ) : null}
       <ScrollView
         style={{ flex: 1 }}
+        bounces={false}
+        alwaysBounceVertical={false}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingTop: scrollTopPadding },
+          { paddingTop: 24 },
         ]}
       >
         <View style={styles.profileHeader}>
@@ -1274,7 +1276,7 @@ export default function UserProfileScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
