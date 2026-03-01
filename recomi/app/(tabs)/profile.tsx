@@ -31,7 +31,7 @@ import {
 import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "../../components/PinDetailSheet";
-import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { firestore } from "../../shared/firebase/app";
 import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
 
@@ -179,6 +179,31 @@ export default function ProfileScreen() {
       setFollowingCount(selfProfile?.followingCount ?? 0);
     });
   }, [selfProfile?.followersCount, selfProfile?.followingCount, user?.uid]);
+
+  React.useEffect(() => {
+    if (!user?.uid) return;
+    let active = true;
+    const refreshCounts = async () => {
+      try {
+        const followersCountSnap = await getCountFromServer(
+          query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", user.uid)),
+        );
+        const followingCountSnap = await getCountFromServer(
+          query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid)),
+        );
+        if (!active) return;
+        setFollowersCount(followersCountSnap.data().count ?? 0);
+        setFollowingCount(followingCountSnap.data().count ?? 0);
+      } catch (error) {
+        if (!active) return;
+        console.warn("Failed to refresh follow counts", error);
+      }
+    };
+    void refreshCounts();
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
 
   // Build gallery-friendly groups so wishlist/favourite pins stay paired with their list definition.
   const grouped = React.useMemo<GroupedList[]>(() => {

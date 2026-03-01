@@ -531,6 +531,33 @@ export default function UserProfileScreen() {
     };
   }, [canFollow, resolvedUid, user]);
 
+  React.useEffect(() => {
+    if (!resolvedUid || !user) {
+      return;
+    }
+    let active = true;
+    const loadCounts = async () => {
+      try {
+        const followersCountSnap = await getCountFromServer(
+          query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", resolvedUid)),
+        );
+        const followingCountSnap = await getCountFromServer(
+          query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", resolvedUid)),
+        );
+        if (!active) return;
+        setFollowersCount(followersCountSnap.data().count ?? 0);
+        setFollowingCount(followingCountSnap.data().count ?? 0);
+      } catch (err) {
+        if (!active) return;
+        console.warn("Failed to load follow counts", err);
+      }
+    };
+    void loadCounts();
+    return () => {
+      active = false;
+    };
+  }, [resolvedUid, user]);
+
   const handleFollowToggle = React.useCallback(async () => {
     if (!canFollow || !resolvedUid || !user) {
       setFollowError("Sign in to follow people.");
