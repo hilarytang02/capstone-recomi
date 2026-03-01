@@ -1264,45 +1264,47 @@ export default function MapScreen() {
             <View style={styles.sheetBody}>
               {socialListOpen ? (
                 <View style={styles.socialList}>
-                  <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>
                   {socialSavers.length ? (
-                    socialSavers.map((profile) => (
-                      <View key={profile.id} style={styles.socialRow}>
-                        <Pressable
-                          style={styles.socialProfile}
-                          onPress={() => router.push(`/user/${profile.id}`)}
-                        >
-                          {profile.photoURL ? (
-                            <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
-                          ) : (
-                            <View style={styles.socialAvatarFallback}>
-                              <Text style={styles.socialAvatarText}>
-                                {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
+                    <>
+                      <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>
+                      {socialSavers.map((profile) => (
+                        <View key={profile.id} style={styles.socialRow}>
+                          <Pressable
+                            style={styles.socialProfile}
+                            onPress={() => router.push(`/user/${profile.id}`)}
+                          >
+                            {profile.photoURL ? (
+                              <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
+                            ) : (
+                              <View style={styles.socialAvatarFallback}>
+                                <Text style={styles.socialAvatarText}>
+                                  {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                            <View style={styles.socialInfo}>
+                              <Text style={styles.socialName} numberOfLines={1}>
+                                {profile.displayName ?? "Unknown"}
+                              </Text>
+                              <Text style={styles.socialUsername} numberOfLines={1}>
+                                {profile.username ? `@${profile.username}` : ""}
                               </Text>
                             </View>
-                          )}
-                          <View style={styles.socialInfo}>
-                            <Text style={styles.socialName} numberOfLines={1}>
-                              {profile.displayName ?? "Unknown"}
-                            </Text>
-                            <Text style={styles.socialUsername} numberOfLines={1}>
-                              {profile.username ? `@${profile.username}` : ""}
-                            </Text>
-                          </View>
-                        </Pressable>
-                        <Pressable
-                          style={styles.socialInvite}
-                          accessibilityRole="button"
-                          onPress={() => {
-                            setInviteTarget(profile);
-                            setInviteMessage("");
-                            setInviteModalOpen(true);
-                          }}
-                        >
-                          <FontAwesome name="paper-plane" size={16} color="#0f172a" />
-                        </Pressable>
-                      </View>
-                    ))
+                          </Pressable>
+                          <Pressable
+                            style={styles.socialInvite}
+                            accessibilityRole="button"
+                            onPress={() => {
+                              setInviteTarget(profile);
+                              setInviteMessage("");
+                              setInviteModalOpen(true);
+                            }}
+                          >
+                            <FontAwesome name="paper-plane" size={16} color="#0f172a" />
+                          </Pressable>
+                        </View>
+                      ))}
+                    </>
                   ) : (
                     <Text style={styles.sheetHint}>No friends have saved this yet.</Text>
                   )}
