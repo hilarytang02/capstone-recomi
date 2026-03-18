@@ -9,6 +9,7 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -107,6 +108,8 @@ type SavedMarker = {
   bucket: "wishlist" | "favourite";
 };
 
+type SavedFilterMode = "all" | "mine" | "liked" | "custom";
+
 const buildLabel = (place: any, fallback: string) => {
   if (!place) return fallback;
   const primary =
@@ -143,7 +146,7 @@ export default function MapScreen() {
   const [userCoords, setUserCoords] = React.useState<{ latitude: number; longitude: number } | null>(null);
   const [sheetState, setSheetState] = React.useState<SheetState>("hidden");
   const [listModalVisible, setListModalVisible] = React.useState(false);
-  const { addEntry, entries, removeEntry, lists, addList, mapFocusEntry, clearMapFocus } = useSavedLists();
+  const { addEntry, entries, likedLists, removeEntry, lists, addList, mapFocusEntry, clearMapFocus } = useSavedLists();
   const [pinSaveStatus, setPinSaveStatus] = React.useState<"wishlist" | "favourite" | null>(null);
   const [pinSaveTransition, setPinSaveTransition] = React.useState<{
     from: "wishlist" | "favourite" | "none" | null;
@@ -219,10 +222,51 @@ export default function MapScreen() {
     searchInputRef.current?.blur();
   }, []);
 
+  const [savedFilterMode, setSavedFilterMode] = React.useState<SavedFilterMode>("all");
+  const [customFilterVisible, setCustomFilterVisible] = React.useState(false);
+  const [myListsExpanded, setMyListsExpanded] = React.useState(true);
+  const [likedListsExpanded, setLikedListsExpanded] = React.useState(true);
+  const [selectedMyListIds, setSelectedMyListIds] = React.useState<string[]>([]);
+  const [selectedLikedListKeys, setSelectedLikedListKeys] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    setSelectedMyListIds((prev) => prev.filter((id) => lists.some((list) => list.id === id)));
+  }, [lists]);
+
+  React.useEffect(() => {
+    const validKeys = new Set(likedLists.map((list) => `${list.ownerId}:${list.listId}`));
+    setSelectedLikedListKeys((prev) => prev.filter((key) => validKeys.has(key)));
+  }, [likedLists]);
+
+  const filteredSavedEntries = React.useMemo(() => {
+    switch (savedFilterMode) {
+      case "all":
+        return [
+          ...entries,
+          ...likedLists.flatMap((list) => [...list.wishlist, ...list.favourite]),
+        ];
+      case "mine":
+        return entries;
+      case "liked":
+        return likedLists.flatMap((list) => [...list.wishlist, ...list.favourite]);
+      case "custom": {
+        const myEntries = entries.filter((entry) => selectedMyListIds.includes(entry.listId));
+        const likedEntries = likedLists.flatMap((list) => {
+          const key = `${list.ownerId}:${list.listId}`;
+          if (!selectedLikedListKeys.includes(key)) return [];
+          return [...list.wishlist, ...list.favourite];
+        });
+        return [...myEntries, ...likedEntries];
+      }
+      default:
+        return entries;
+    }
+  }, [entries, likedLists, savedFilterMode, selectedLikedListKeys, selectedMyListIds]);
+
   const savedMarkers = React.useMemo<SavedMarker[]>(() => {
     const grouped = new Map<string, SavedMarker>();
 
-    entries.forEach((entry) => {
+    filteredSavedEntries.forEach((entry) => {
       const key =
         entry.pin.placeId ||
         `${entry.pin.lat.toFixed(6)}:${entry.pin.lng.toFixed(6)}`;
@@ -246,7 +290,7 @@ export default function MapScreen() {
     });
 
     return Array.from(grouped.values());
-  }, [entries]);
+  }, [filteredSavedEntries]);
 
   const visibleSavedMarkers = React.useMemo(() => {
     if (!pin) return savedMarkers;
@@ -1128,6 +1172,7 @@ export default function MapScreen() {
   const isSheetCollapsed = sheetState === "collapsed";
   const showSuggestions =
     showSearchBar && searchFocused && (searchSuggestions.length > 0 || searchSuggesting);
+  const showSavedMarkerFilters = showSearchBar;
   return (
     <View style={styles.container}>
       <MapView
@@ -1215,8 +1260,57 @@ export default function MapScreen() {
           )}
         </View>
       )}
+      {showSavedMarkerFilters && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.savedFilterScrollContent}
+          style={[styles.savedFilterScroll, { top: insets.top + 72 }]}
+        >
+          {[
+            { key: "all" as const, label: "All saved" },
+            { key: "mine" as const, label: "My lists" },
+            { key: "liked" as const, label: "Liked lists" },
+            { key: "custom" as const, label: "Custom" },
+          ].map((filter) => {
+            const selected = savedFilterMode === filter.key;
+            return (
+              <Pressable
+                key={filter.key}
+                onPress={() => {
+                  if (filter.key === "custom") {
+                    setSavedFilterMode("custom");
+                    setCustomFilterVisible(true);
+                    return;
+                  }
+                  setSavedFilterMode(filter.key);
+                }}
+                style={[
+                  styles.savedFilterChip,
+                  selected && styles.savedFilterChipActive,
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.savedFilterChipText,
+                    selected && styles.savedFilterChipTextActive,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
       {showSuggestions && (
-        <View style={[styles.searchSuggestions, { top: insets.top + 16 + 52 }]}>
+        <View
+          style={[
+            styles.searchSuggestions,
+            { top: insets.top + 16 + 52 + (showSavedMarkerFilters ? 52 : 0) },
+          ]}
+        >
           <FlatList
             data={searchSuggestions}
             keyExtractor={(item) => item.placeId}
@@ -1623,6 +1717,148 @@ export default function MapScreen() {
         </KeyboardAvoidingView>
       </Modal>
       <Modal
+        visible={customFilterVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCustomFilterVisible(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setCustomFilterVisible(false)} />
+        <View style={styles.customFilterModal}>
+          <View style={styles.customFilterHeader}>
+            <Text style={styles.customFilterTitle}>Choose lists to show</Text>
+            <Pressable onPress={() => setCustomFilterVisible(false)} style={styles.sheetClose}>
+              <Text style={styles.sheetCloseText}>Done</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.customFilterSection}>
+            <View style={styles.customFilterSectionHeader}>
+              <Pressable
+                onPress={() => setMyListsExpanded((prev) => !prev)}
+                style={styles.customFilterSectionToggle}
+              >
+                <Text style={styles.customFilterSectionTitle}>My lists</Text>
+                <Text style={styles.customFilterSectionChevron}>{myListsExpanded ? "Hide" : "Show"}</Text>
+              </Pressable>
+              <View style={styles.customFilterActions}>
+                <Pressable onPress={() => setSelectedMyListIds(lists.map((list) => list.id))}>
+                  <Text style={styles.customFilterActionText}>Select all</Text>
+                </Pressable>
+                <Pressable onPress={() => setSelectedMyListIds([])}>
+                  <Text style={styles.customFilterActionText}>Clear</Text>
+                </Pressable>
+              </View>
+            </View>
+            {myListsExpanded ? (
+              <View style={styles.customFilterOptions}>
+                {lists.length ? (
+                  lists.map((list) => {
+                    const selected = selectedMyListIds.includes(list.id);
+                    return (
+                      <Pressable
+                        key={list.id}
+                        onPress={() =>
+                          setSelectedMyListIds((prev) =>
+                            prev.includes(list.id)
+                              ? prev.filter((id) => id !== list.id)
+                              : [...prev, list.id]
+                          )
+                        }
+                        style={[styles.customFilterOption, selected && styles.customFilterOptionActive]}
+                      >
+                        <View style={styles.customFilterOptionRow}>
+                          <Text style={[styles.customFilterOptionText, selected && styles.customFilterOptionTextActive]}>
+                            {list.name}
+                          </Text>
+                          <View
+                            style={[
+                              styles.customFilterCheckbox,
+                              selected && styles.customFilterCheckboxChecked,
+                            ]}
+                          >
+                            {selected ? (
+                              <FontAwesome name="check" size={10} color="#ffffff" />
+                            ) : null}
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.customFilterEmptyText}>No personal lists yet.</Text>
+                )}
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.customFilterSection}>
+            <View style={styles.customFilterSectionHeader}>
+              <Pressable
+                onPress={() => setLikedListsExpanded((prev) => !prev)}
+                style={styles.customFilterSectionToggle}
+              >
+                <Text style={styles.customFilterSectionTitle}>Liked lists</Text>
+                <Text style={styles.customFilterSectionChevron}>{likedListsExpanded ? "Hide" : "Show"}</Text>
+              </Pressable>
+              <View style={styles.customFilterActions}>
+                <Pressable
+                  onPress={() =>
+                    setSelectedLikedListKeys(likedLists.map((list) => `${list.ownerId}:${list.listId}`))
+                  }
+                >
+                  <Text style={styles.customFilterActionText}>Select all</Text>
+                </Pressable>
+                <Pressable onPress={() => setSelectedLikedListKeys([])}>
+                  <Text style={styles.customFilterActionText}>Clear</Text>
+                </Pressable>
+              </View>
+            </View>
+            {likedListsExpanded ? (
+              <View style={styles.customFilterOptions}>
+                {likedLists.length ? (
+                  likedLists.map((list) => {
+                    const key = `${list.ownerId}:${list.listId}`;
+                    const selected = selectedLikedListKeys.includes(key);
+                    const ownerPrefix = list.ownerUsername ? `@${list.ownerUsername}` : list.ownerDisplayName ?? "Liked";
+                    return (
+                      <Pressable
+                        key={key}
+                        onPress={() =>
+                          setSelectedLikedListKeys((prev) =>
+                            prev.includes(key)
+                              ? prev.filter((item) => item !== key)
+                              : [...prev, key]
+                          )
+                        }
+                        style={[styles.customFilterOption, selected && styles.customFilterOptionActive]}
+                      >
+                        <View style={styles.customFilterOptionRow}>
+                          <Text style={[styles.customFilterOptionText, selected && styles.customFilterOptionTextActive]}>
+                            {ownerPrefix}: {list.listName}
+                          </Text>
+                          <View
+                            style={[
+                              styles.customFilterCheckbox,
+                              selected && styles.customFilterCheckboxChecked,
+                            ]}
+                          >
+                            {selected ? (
+                              <FontAwesome name="check" size={10} color="#ffffff" />
+                            ) : null}
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.customFilterEmptyText}>No liked lists yet.</Text>
+                )}
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+      <Modal
         visible={!!bulkMovePrompt}
         transparent
         animationType="fade"
@@ -1820,6 +2056,151 @@ const styles = StyleSheet.create({
     elevation: 6,
     zIndex: 9,
     overflow: "hidden",
+  },
+  savedFilterScroll: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 9,
+  },
+  savedFilterScrollContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  savedFilterChip: {
+    height: 34,
+    maxWidth: 180,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  savedFilterChipActive: {
+    backgroundColor: "#0f172a",
+    borderColor: "#0f172a",
+  },
+  savedFilterChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  savedFilterChipTextActive: {
+    color: "#ffffff",
+  },
+  customFilterModal: {
+    marginHorizontal: 20,
+    marginTop: 100,
+    borderRadius: 24,
+    backgroundColor: "#ffffff",
+    padding: 18,
+    maxHeight: "72%",
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+  customFilterHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  customFilterTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  customFilterSection: {
+    marginTop: 10,
+  },
+  customFilterSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  customFilterSectionToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  customFilterSectionTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  customFilterSectionChevron: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  customFilterActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  customFilterActionText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#2563eb",
+  },
+  customFilterOptions: {
+    marginTop: 12,
+    gap: 8,
+  },
+  customFilterOption: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  customFilterOptionActive: {
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f8fafc",
+  },
+  customFilterOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  customFilterCheckbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: "#94a3b8",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+  },
+  customFilterCheckboxChecked: {
+    backgroundColor: "#0f172a",
+    borderColor: "#0f172a",
+  },
+  customFilterOptionText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  customFilterOptionTextActive: {
+    color: "#0f172a",
+  },
+  customFilterEmptyText: {
+    fontSize: 13,
+    color: "#64748b",
   },
   searchSuggestionRow: {
     paddingHorizontal: 14,
