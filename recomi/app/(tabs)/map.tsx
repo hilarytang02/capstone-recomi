@@ -105,7 +105,6 @@ type SavedMarker = {
   label: string;
   placeId?: string | null;
   bucket: "wishlist" | "favourite";
-  listCount: number;
 };
 
 const buildLabel = (place: any, fallback: string) => {
@@ -237,12 +236,10 @@ export default function MapScreen() {
           label: entry.pin.label,
           placeId: entry.pin.placeId ?? null,
           bucket: entry.bucket,
-          listCount: 1,
         });
         return;
       }
 
-      existing.listCount += 1;
       if (existing.bucket !== "favourite" && entry.bucket === "favourite") {
         existing.bucket = "favourite";
       }
@@ -1185,11 +1182,6 @@ export default function MapScreen() {
                 size={10}
                 color={marker.bucket === "favourite" ? "#ffffff" : "#ef4444"}
               />
-              {marker.listCount > 1 ? (
-                <View style={styles.savedMarkerCountBadge}>
-                  <Text style={styles.savedMarkerCountText}>{marker.listCount}</Text>
-                </View>
-              ) : null}
             </View>
           </Marker>
         ))}
@@ -1779,26 +1771,6 @@ const styles = StyleSheet.create({
   },
   savedMarkerFavourite: {
     backgroundColor: "#ef4444",
-  },
-  savedMarkerCountBadge: {
-    position: "absolute",
-    right: -6,
-    top: -6,
-    minWidth: 14,
-    height: 14,
-    borderRadius: 7,
-    paddingHorizontal: 3,
-    backgroundColor: "#0f172a",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#ffffff",
-  },
-  savedMarkerCountText: {
-    fontSize: 9,
-    lineHeight: 10,
-    fontWeight: "700",
-    color: "#ffffff",
   },
   searchBarWrapper: {
     position: "absolute",
