@@ -387,7 +387,7 @@ export default function UserProfileScreen() {
   }, []);
 
   React.useEffect(() => {
-    if (!profile || !selectedGroup) {
+    if (!profile || !selectedGroup || !user) {
       setLikedByCount(null);
       return;
     }
