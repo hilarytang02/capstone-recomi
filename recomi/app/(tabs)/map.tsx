@@ -98,6 +98,16 @@ type SocialSaver = {
   photoURL: string | null;
 };
 
+type SavedMarker = {
+  id: string;
+  lat: number;
+  lng: number;
+  label: string;
+  placeId?: string | null;
+  bucket: "wishlist" | "favourite";
+  listCount: number;
+};
+
 const buildLabel = (place: any, fallback: string) => {
   if (!place) return fallback;
   const primary =
@@ -204,6 +214,50 @@ export default function MapScreen() {
     }
     return Math.abs(a.lat - b.lat) < 1e-8 && Math.abs(a.lng - b.lng) < 1e-8;
   }, []);
+
+  const dismissKeyboard = React.useCallback(() => {
+    Keyboard.dismiss();
+    searchInputRef.current?.blur();
+  }, []);
+
+  const savedMarkers = React.useMemo<SavedMarker[]>(() => {
+    const grouped = new Map<string, SavedMarker>();
+
+    entries.forEach((entry) => {
+      const key =
+        entry.pin.placeId ||
+        `${entry.pin.lat.toFixed(6)}:${entry.pin.lng.toFixed(6)}`;
+      const existing = grouped.get(key);
+
+      if (!existing) {
+        grouped.set(key, {
+          id: key,
+          lat: entry.pin.lat,
+          lng: entry.pin.lng,
+          label: entry.pin.label,
+          placeId: entry.pin.placeId ?? null,
+          bucket: entry.bucket,
+          listCount: 1,
+        });
+        return;
+      }
+
+      existing.listCount += 1;
+      if (existing.bucket !== "favourite" && entry.bucket === "favourite") {
+        existing.bucket = "favourite";
+      }
+    });
+
+    return Array.from(grouped.values());
+  }, [entries]);
+
+  const visibleSavedMarkers = React.useMemo(() => {
+    if (!pin) return savedMarkers;
+    return savedMarkers.filter(
+      (marker) =>
+        !pinMatches(marker, pin)
+    );
+  }, [pin, pinMatches, savedMarkers]);
 
   const getAddressPart = (components: any[] | undefined, type: string) =>
     components?.find((part) => Array.isArray(part?.types) && part.types.includes(type))?.longText ??
@@ -600,6 +654,26 @@ export default function MapScreen() {
     setPinSaveStatus(null);
     setBulkMovePrompt(null);
   };
+
+  const handleSavedMarkerPress = React.useCallback(
+    (marker: SavedMarker) => {
+      dismissKeyboard();
+      setQuery("");
+      setSearchSuggestions([]);
+      setSearchFocused(false);
+      setListModalVisible(false);
+      setBulkMovePrompt(null);
+      setPin({
+        lat: marker.lat,
+        lng: marker.lng,
+        label: marker.label,
+        placeId: marker.placeId ?? null,
+      });
+      setSheetState("half");
+      focusOn(marker.lat, marker.lng, { targetSheet: "half", animateMs: 500 });
+    },
+    [dismissKeyboard, focusOn]
+  );
 
   const visibleTenants = React.useMemo(() => {
     if (!tenantFloor) return tenantCandidates;
@@ -1013,11 +1087,6 @@ export default function MapScreen() {
 
   const showSearchBar = sheetState !== "expanded";
 
-  const dismissKeyboard = React.useCallback(() => {
-    Keyboard.dismiss();
-    searchInputRef.current?.blur();
-  }, []);
-
   const handleCancelSearch = React.useCallback(() => {
     setQuery("");
     setSearchSuggestions([]);
@@ -1096,6 +1165,34 @@ export default function MapScreen() {
         scrollEnabled
         pitchEnabled
       >
+        {visibleSavedMarkers.map((marker) => (
+          <Marker
+            key={marker.id}
+            coordinate={{ latitude: marker.lat, longitude: marker.lng }}
+            onPress={() => handleSavedMarkerPress(marker)}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View
+              style={[
+                styles.savedMarker,
+                marker.bucket === "favourite"
+                  ? styles.savedMarkerFavourite
+                  : styles.savedMarkerWishlist,
+              ]}
+            >
+              <FontAwesome
+                name="heart"
+                size={10}
+                color={marker.bucket === "favourite" ? "#ffffff" : "#ef4444"}
+              />
+              {marker.listCount > 1 ? (
+                <View style={styles.savedMarkerCountBadge}>
+                  <Text style={styles.savedMarkerCountText}>{marker.listCount}</Text>
+                </View>
+              ) : null}
+            </View>
+          </Marker>
+        ))}
         {pin && <Marker coordinate={{ latitude: pin.lat, longitude: pin.lng }} />}
       </MapView>
 
@@ -1663,6 +1760,46 @@ function CompassButton({ heading, onPress }: { heading: number; onPress: () => v
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
+  savedMarker: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    shadowColor: "#0f172a",
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  savedMarkerWishlist: {
+    backgroundColor: "#ffffff",
+  },
+  savedMarkerFavourite: {
+    backgroundColor: "#ef4444",
+  },
+  savedMarkerCountBadge: {
+    position: "absolute",
+    right: -6,
+    top: -6,
+    minWidth: 14,
+    height: 14,
+    borderRadius: 7,
+    paddingHorizontal: 3,
+    backgroundColor: "#0f172a",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#ffffff",
+  },
+  savedMarkerCountText: {
+    fontSize: 9,
+    lineHeight: 10,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
   searchBarWrapper: {
     position: "absolute",
     left: 16,
