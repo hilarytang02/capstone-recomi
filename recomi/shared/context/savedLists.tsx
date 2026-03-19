@@ -65,11 +65,6 @@ export const LIST_VISIBILITY_OPTIONS: Array<{
     helper: "Visible to anyone with the link.",
   },
   {
-    value: "followers",
-    label: "Followers",
-    helper: "Only people who follow you can see it.",
-  },
-  {
     value: "private",
     label: "Private",
     helper: "Only you can see this list.",
