@@ -10,6 +10,46 @@ const MIN_DISPLAY_MS = 900
 const EMPTY_INCENTIVE_DELAY_MS = 700
 const FRIEND_LABEL_GRACE_MS = 350
 
+const getDisplayCounts = ({
+  wishlistCount,
+  favouriteCount,
+  transition,
+  baseline,
+}: {
+  wishlistCount: number
+  favouriteCount: number
+  transition: { from: "wishlist" | "favourite" | "none" | null; to: "wishlist" | "favourite" | "none" | null } | null
+  baseline: { wishlist: number; favourite: number } | null
+}) => {
+  if (!transition || !baseline) {
+    return { wishlistCount, favouriteCount }
+  }
+
+  const expectedWishlist =
+    baseline.wishlist +
+    (transition.to === "wishlist" ? 1 : 0) -
+    (transition.from === "wishlist" ? 1 : 0)
+  const expectedFavourite =
+    baseline.favourite +
+    (transition.to === "favourite" ? 1 : 0) -
+    (transition.from === "favourite" ? 1 : 0)
+
+  return {
+    wishlistCount:
+      transition.to === "wishlist"
+        ? Math.max(wishlistCount, expectedWishlist)
+        : transition.from === "wishlist"
+          ? Math.min(wishlistCount, expectedWishlist)
+          : wishlistCount,
+    favouriteCount:
+      transition.to === "favourite"
+        ? Math.max(favouriteCount, expectedFavourite)
+        : transition.from === "favourite"
+          ? Math.min(favouriteCount, expectedFavourite)
+          : favouriteCount,
+  }
+}
+
 export default function PlaceSocialProof({
   pin,
   viewerBucket = null,
@@ -72,22 +112,33 @@ export default function PlaceSocialProof({
     }
   }, [favouriteCount, onTransitionSettled, transition, wishlistCount])
 
+  const displayCounts = React.useMemo(
+    () =>
+      getDisplayCounts({
+        wishlistCount,
+        favouriteCount,
+        transition,
+        baseline: transitionBaselineRef.current,
+      }),
+    [favouriteCount, transition, wishlistCount]
+  )
+
   const socialProof = React.useMemo(
     () =>
       getSocialProofLines({
-        wishlistCount: Math.max(0, wishlistCount),
-        favouriteCount: Math.max(0, favouriteCount),
+        wishlistCount: Math.max(0, displayCounts.wishlistCount),
+        favouriteCount: Math.max(0, displayCounts.favouriteCount),
         wishlistFriendLabel: friendsResolved ? (wishlistFriend?.username ? `@${wishlistFriend.username}` : wishlistFriend?.displayName ?? null) : null,
         favouriteFriendLabel: friendsResolved ? (favouriteFriend?.username ? `@${favouriteFriend.username}` : favouriteFriend?.displayName ?? null) : null,
         selfBucket: viewerBucket ?? null,
       }),
     [
-      favouriteCount,
+      displayCounts.favouriteCount,
+      displayCounts.wishlistCount,
       favouriteFriend?.displayName,
       favouriteFriend?.username,
       friendsResolved,
       viewerBucket,
-      wishlistCount,
       wishlistFriend?.displayName,
       wishlistFriend?.username,
     ]
@@ -112,7 +163,7 @@ export default function PlaceSocialProof({
       return
     }
 
-    const hasCounts = wishlistCount > 0 || favouriteCount > 0
+    const hasCounts = displayCounts.wishlistCount > 0 || displayCounts.favouriteCount > 0
     const readyForIncentive = hasSnapshot && friendsResolved && !transition && !hasCounts
 
     if (incentiveTimerRef.current) {
@@ -175,17 +226,17 @@ export default function PlaceSocialProof({
   }, [
     displayedIncentive,
     displayedLines.length,
-    favouriteCount,
+    displayCounts.favouriteCount,
+    displayCounts.wishlistCount,
     friendsResolved,
     hasSnapshot,
     pin,
     socialProof.lines,
     transition,
-    wishlistCount,
   ])
 
   if (!pin) return null
-  if (!hasSnapshot && !transition && wishlistCount === 0 && favouriteCount === 0) {
+  if (!hasSnapshot && !transition && displayCounts.wishlistCount === 0 && displayCounts.favouriteCount === 0) {
     return null
   }
 
