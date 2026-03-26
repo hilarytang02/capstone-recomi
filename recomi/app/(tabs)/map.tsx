@@ -127,6 +127,56 @@ const buildLabel = (place: any, fallback: string) => {
 const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
   Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5;
 
+const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
+  marker,
+  onPress,
+}: {
+  marker: SavedMarker;
+  onPress: () => void;
+}) {
+  const coordinate = React.useMemo(
+    () => ({ latitude: marker.lat, longitude: marker.lng }),
+    [marker.lat, marker.lng]
+  );
+
+  if (Platform.OS === "ios") {
+    return (
+      <Marker
+        coordinate={coordinate}
+        onPress={onPress}
+        identifier={marker.id}
+        pinColor={marker.bucket === "favourite" ? "#ef4444" : "#f59e0b"}
+        tracksViewChanges={false}
+      />
+    );
+  }
+
+  return (
+    <Marker
+      coordinate={coordinate}
+      onPress={onPress}
+      identifier={marker.id}
+      anchor={{ x: 0.5, y: 0.5 }}
+      tracksViewChanges={false}
+    >
+      <View
+        style={[
+          styles.savedMarker,
+          marker.bucket === "favourite"
+            ? styles.savedMarkerFavourite
+            : styles.savedMarkerWishlist,
+        ]}
+      >
+        <FontAwesome
+          name="heart"
+          size={10}
+          color={marker.bucket === "favourite" ? "#ffffff" : "#ef4444"}
+        />
+      </View>
+    </Marker>
+  );
+});
+
 // Combines search, map camera control, and list-saving UX into the home screen.
 export default function MapScreen() {
   const { user } = useAuth();
@@ -228,6 +278,9 @@ export default function MapScreen() {
   const [likedListsExpanded, setLikedListsExpanded] = React.useState(true);
   const [selectedMyListIds, setSelectedMyListIds] = React.useState<string[]>([]);
   const [selectedLikedListKeys, setSelectedLikedListKeys] = React.useState<string[]>([]);
+  const deferredSavedFilterMode = React.useDeferredValue(savedFilterMode);
+  const deferredSelectedMyListIds = React.useDeferredValue(selectedMyListIds);
+  const deferredSelectedLikedListKeys = React.useDeferredValue(selectedLikedListKeys);
 
   React.useEffect(() => {
     setSelectedMyListIds((prev) => prev.filter((id) => lists.some((list) => list.id === id)));
@@ -239,7 +292,7 @@ export default function MapScreen() {
   }, [likedLists]);
 
   const filteredSavedEntries = React.useMemo(() => {
-    switch (savedFilterMode) {
+    switch (deferredSavedFilterMode) {
       case "all":
         return [
           ...entries,
@@ -250,10 +303,10 @@ export default function MapScreen() {
       case "liked":
         return likedLists.flatMap((list) => [...list.wishlist, ...list.favourite]);
       case "custom": {
-        const myEntries = entries.filter((entry) => selectedMyListIds.includes(entry.listId));
+        const myEntries = entries.filter((entry) => deferredSelectedMyListIds.includes(entry.listId));
         const likedEntries = likedLists.flatMap((list) => {
           const key = `${list.ownerId}:${list.listId}`;
-          if (!selectedLikedListKeys.includes(key)) return [];
+          if (!deferredSelectedLikedListKeys.includes(key)) return [];
           return [...list.wishlist, ...list.favourite];
         });
         return [...myEntries, ...likedEntries];
@@ -261,7 +314,13 @@ export default function MapScreen() {
       default:
         return entries;
     }
-  }, [entries, likedLists, savedFilterMode, selectedLikedListKeys, selectedMyListIds]);
+  }, [
+    deferredSavedFilterMode,
+    deferredSelectedLikedListKeys,
+    deferredSelectedMyListIds,
+    entries,
+    likedLists,
+  ]);
 
   const savedMarkers = React.useMemo<SavedMarker[]>(() => {
     const grouped = new Map<string, SavedMarker>();
@@ -1208,27 +1267,11 @@ export default function MapScreen() {
         pitchEnabled
       >
         {visibleSavedMarkers.map((marker) => (
-          <Marker
-            key={marker.id}
-            coordinate={{ latitude: marker.lat, longitude: marker.lng }}
+          <SavedPlaceMarker
+            key={`${marker.id}:${marker.bucket}`}
+            marker={marker}
             onPress={() => handleSavedMarkerPress(marker)}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View
-              style={[
-                styles.savedMarker,
-                marker.bucket === "favourite"
-                  ? styles.savedMarkerFavourite
-                  : styles.savedMarkerWishlist,
-              ]}
-            >
-              <FontAwesome
-                name="heart"
-                size={10}
-                color={marker.bucket === "favourite" ? "#ffffff" : "#ef4444"}
-              />
-            </View>
-          </Marker>
+          />
         ))}
         {pin && <Marker coordinate={{ latitude: pin.lat, longitude: pin.lng }} />}
       </MapView>
