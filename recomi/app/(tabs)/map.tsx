@@ -218,7 +218,6 @@ export default function MapScreen() {
   const [tenantFloor, setTenantFloor] = React.useState<string | null>(null);
   const [tenantAnchor, setTenantAnchor] = React.useState<{ lat: number; lng: number } | null>(null);
   const tenantPickerHidden = sheetState === "expanded";
-  const [socialListOpen, setSocialListOpen] = React.useState(false);
   const [inviteModalOpen, setInviteModalOpen] = React.useState(false);
   const [inviteTarget, setInviteTarget] = React.useState<SocialSaver | null>(null);
   const [inviteMessage, setInviteMessage] = React.useState("");
@@ -841,9 +840,7 @@ export default function MapScreen() {
   }, [defaultInviteMessage, inviteMessage, inviteTarget, pin, user?.uid]);
 
   const socialSaversLoading =
-    Boolean(pin) &&
-    socialListOpen &&
-    (!engagementHasSnapshot || !engagementFriendsResolved);
+    Boolean(pin) && (!engagementHasSnapshot || !engagementFriendsResolved);
   const totalEngagementCount = engagementWishlistCount + engagementFavouriteCount;
 
   // Reset camera heading to north when the compass button is tapped.
@@ -886,15 +883,8 @@ export default function MapScreen() {
       setSheetState("hidden");
       setPinSaveStatus(null);
       setBulkMovePrompt(null);
-      setSocialListOpen(false);
     }
   }, [pin]);
-
-  React.useEffect(() => {
-    if (pinSaveStatus === "wishlist") {
-      setSocialListOpen(true);
-    }
-  }, [pinSaveStatus]);
 
   React.useEffect(() => {
     if (!pin) return;
@@ -1403,17 +1393,14 @@ export default function MapScreen() {
 
           {!isSheetCollapsed && (
             <View style={styles.sheetActions}>
-              <Pressable
-                onPress={() => setSocialListOpen(true)}
-                style={styles.socialProofBlock}
-              >
+              <View style={styles.socialProofBlock}>
                 <PlaceSocialProof
                   pin={pin}
                   viewerBucket={pinSaveStatus}
                   transition={pinSaveTransition}
                   onTransitionSettled={() => setPinSaveTransition(null)}
                 />
-              </Pressable>
+              </View>
               <Pressable
                 onPress={() => {
                   setListModalVisible(true);
@@ -1438,59 +1425,49 @@ export default function MapScreen() {
 
           {(sheetState === "half" || sheetState === "expanded") && (
             <View style={styles.sheetBody}>
-              {socialListOpen ? (
+              {socialSaversLoading ? null : totalEngagementCount === 0 ? null : socialSavers.length ? (
                 <View style={styles.socialList}>
-                  {socialSaversLoading ? (
-                    <Text style={styles.sheetHint}>Loading friends who saved this...</Text>
-                  ) : totalEngagementCount === 0 ? (
-                    <Text style={styles.sheetHint}>Be the first to save this spot!</Text>
-                  ) : socialSavers.length ? (
-                    <>
-                      <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>
-                      {socialSavers.map((profile) => (
-                        <View key={profile.id} style={styles.socialRow}>
-                          <Pressable
-                            style={styles.socialProfile}
-                            onPress={() => router.push(`/user/${profile.id}`)}
-                          >
-                            {profile.photoURL ? (
-                              <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
-                            ) : (
-                              <View style={styles.socialAvatarFallback}>
-                                <Text style={styles.socialAvatarText}>
-                                  {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
-                                </Text>
-                              </View>
-                            )}
-                            <View style={styles.socialInfo}>
-                              <Text style={styles.socialName} numberOfLines={1}>
-                                {profile.displayName ?? "Unknown"}
-                              </Text>
-                              <Text style={styles.socialUsername} numberOfLines={1}>
-                                {profile.username ? `@${profile.username}` : ""}
-                              </Text>
-                            </View>
-                          </Pressable>
-                          <Pressable
-                            style={styles.socialInvite}
-                            accessibilityRole="button"
-                            onPress={() => {
-                              setInviteTarget(profile);
-                              setInviteMessage("");
-                              setInviteModalOpen(true);
-                            }}
-                          >
-                            <FontAwesome name="paper-plane" size={16} color="#0f172a" />
-                          </Pressable>
+                  <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>
+                  {socialSavers.map((profile) => (
+                    <View key={profile.id} style={styles.socialRow}>
+                      <Pressable
+                        style={styles.socialProfile}
+                        onPress={() => router.push(`/user/${profile.id}`)}
+                      >
+                        {profile.photoURL ? (
+                          <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
+                        ) : (
+                          <View style={styles.socialAvatarFallback}>
+                            <Text style={styles.socialAvatarText}>
+                              {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.socialInfo}>
+                          <Text style={styles.socialName} numberOfLines={1}>
+                            {profile.displayName ?? "Unknown"}
+                          </Text>
+                          <Text style={styles.socialUsername} numberOfLines={1}>
+                            {profile.username ? `@${profile.username}` : ""}
+                          </Text>
                         </View>
-                      ))}
-                    </>
-                  ) : (
-                    <Text style={styles.sheetHint}>No friends have saved this yet.</Text>
-                  )}
+                      </Pressable>
+                      <Pressable
+                        style={styles.socialInvite}
+                        accessibilityRole="button"
+                        onPress={() => {
+                          setInviteTarget(profile);
+                          setInviteMessage("");
+                          setInviteModalOpen(true);
+                        }}
+                      >
+                        <FontAwesome name="paper-plane" size={16} color="#0f172a" />
+                      </Pressable>
+                    </View>
+                  ))}
                 </View>
               ) : (
-                <Text style={styles.sheetHint}>Future recommendation details will appear here.</Text>
+                totalEngagementCount > 0 ? <Text style={styles.sheetHint}>No friends have saved this yet.</Text> : null
               )}
             </View>
           )}

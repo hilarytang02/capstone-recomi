@@ -7,7 +7,6 @@ import { getSocialProofLines } from "../shared/utils/socialProof"
 import type { PlacePin } from "../shared/utils/placeStats"
 
 const MIN_DISPLAY_MS = 900
-const EMPTY_INCENTIVE_DELAY_MS = 700
 const FRIEND_LABEL_GRACE_MS = 350
 
 const getDisplayCounts = ({
@@ -76,6 +75,10 @@ export default function PlaceSocialProof({
   const friendGraceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const [displayedLines, setDisplayedLines] = React.useState<ReturnType<typeof getSocialProofLines>["lines"]>([])
   const [displayedIncentive, setDisplayedIncentive] = React.useState<string | null>(null)
+  const placeKey = React.useMemo(
+    () => (pin ? (pin.placeId ? `g_${pin.placeId}` : `${pin.lat.toFixed(5)}_${pin.lng.toFixed(5)}`) : null),
+    [pin]
+  )
 
   React.useEffect(() => {
     if (transition && !transitionBaselineRef.current) {
@@ -153,6 +156,15 @@ export default function PlaceSocialProof({
   }, [])
 
   React.useEffect(() => {
+    if (displayTimerRef.current) clearTimeout(displayTimerRef.current)
+    if (incentiveTimerRef.current) clearTimeout(incentiveTimerRef.current)
+    if (friendGraceTimerRef.current) clearTimeout(friendGraceTimerRef.current)
+    setDisplayedLines([])
+    setDisplayedIncentive(null)
+    lastDisplayAtRef.current = 0
+  }, [placeKey])
+
+  React.useEffect(() => {
     if (!pin) {
       if (displayTimerRef.current) clearTimeout(displayTimerRef.current)
       if (incentiveTimerRef.current) clearTimeout(incentiveTimerRef.current)
@@ -217,11 +229,9 @@ export default function PlaceSocialProof({
     }
 
     if (readyForIncentive) {
-      incentiveTimerRef.current = setTimeout(() => {
-        setDisplayedLines([])
-        setDisplayedIncentive("Be the first to save this spot!")
-        lastDisplayAtRef.current = Date.now()
-      }, EMPTY_INCENTIVE_DELAY_MS)
+      setDisplayedLines([])
+      setDisplayedIncentive("Be the first to save this spot!")
+      lastDisplayAtRef.current = Date.now()
     }
   }, [
     displayedIncentive,
