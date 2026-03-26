@@ -22,7 +22,7 @@ import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { addDoc, collection, doc, getDoc, getDocs, query as firestoreQuery, serverTimestamp, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
 import { searchNearbyPlace, searchNearbyPlaces, searchPlaceAutocomplete, searchPlaceByText, type PlaceAutocompleteItem } from "../../shared/api/places";
 import {
   useSavedLists,
@@ -32,8 +32,8 @@ import {
 } from "../../shared/context/savedLists";
 import PlaceSocialProof from "../../components/PlaceSocialProof";
 import { useAuth } from "../../shared/context/auth";
+import { useSocialGraph } from "../../shared/context/socialGraph";
 import { firestore } from "../../shared/firebase/app";
-import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION } from "../../shared/api/users";
 import { PLACE_STATS_COLLECTION, PLACE_USER_SAVES_SUBCOLLECTION, placeIdFromPin } from "../../shared/utils/placeStats";
 
 const WORLD: Region = {
@@ -180,6 +180,7 @@ const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
 // Combines search, map camera control, and list-saving UX into the home screen.
 export default function MapScreen() {
   const { user } = useAuth();
+  const { relatedUserIds, relatedProfiles, loading: socialGraphLoading } = useSocialGraph();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -220,6 +221,7 @@ export default function MapScreen() {
   const tenantPickerHidden = sheetState === "expanded";
   const [socialListOpen, setSocialListOpen] = React.useState(false);
   const [socialSavers, setSocialSavers] = React.useState<SocialSaver[]>([]);
+  const [socialSaversLoading, setSocialSaversLoading] = React.useState(false);
   const [inviteModalOpen, setInviteModalOpen] = React.useState(false);
   const [inviteTarget, setInviteTarget] = React.useState<SocialSaver | null>(null);
   const [inviteMessage, setInviteMessage] = React.useState("");
@@ -838,63 +840,56 @@ export default function MapScreen() {
     const load = async () => {
       if (!pin || !user?.uid) {
         setSocialSavers([]);
+        setSocialSaversLoading(false);
         return;
       }
       if (!socialListOpen && !pinSaveStatus) {
         setSocialSavers([]);
+        setSocialSaversLoading(false);
         return;
       }
-      const placeId = placeIdFromPin(pin);
-      const followsSnapshot = await getDocs(
-        firestoreQuery(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid))
-      );
-      const followerSnapshot = await getDocs(
-        firestoreQuery(collection(firestore, USER_FOLLOWS_COLLECTION), where("followeeId", "==", user.uid))
-      );
-      const followees = followsSnapshot.docs
-        .map((docSnap) => (docSnap.data() as { followeeId?: string }).followeeId)
-        .filter((id): id is string => Boolean(id));
-      const followers = followerSnapshot.docs
-        .map((docSnap) => (docSnap.data() as { followerId?: string }).followerId)
-        .filter((id): id is string => Boolean(id));
-      const orderedIds = [...followees, ...followers.filter((id) => !followees.includes(id))];
-      if (!orderedIds.length) {
-        setSocialSavers([]);
-        return;
-      }
-      const saveSnaps = await Promise.all(
-        orderedIds.map((id) =>
-          getDoc(doc(firestore, PLACE_STATS_COLLECTION, placeId, PLACE_USER_SAVES_SUBCOLLECTION, id))
-        )
-      );
-      const savedIds = orderedIds.filter((_, index) => saveSnaps[index].exists());
-      if (!savedIds.length) {
-        setSocialSavers([]);
-        return;
-      }
-      const profiles = await Promise.all(
-        savedIds.map(async (id) => {
-          const profileSnap = await getDoc(doc(firestore, USERS_COLLECTION, id));
-          const data = profileSnap.exists()
-            ? (profileSnap.data() as { displayName?: string | null; username?: string | null; photoURL?: string | null })
-            : {};
+      setSocialSaversLoading(true);
+      try {
+        const placeId = placeIdFromPin(pin);
+        if (socialGraphLoading) {
+          return;
+        }
+        if (!relatedUserIds.length) {
+          setSocialSavers([]);
+          return;
+        }
+        const saveSnaps = await Promise.all(
+          relatedUserIds.map((id) =>
+            getDoc(doc(firestore, PLACE_STATS_COLLECTION, placeId, PLACE_USER_SAVES_SUBCOLLECTION, id))
+          )
+        );
+        const savedIds = relatedUserIds.filter((_, index) => saveSnaps[index].exists());
+        if (!savedIds.length) {
+          setSocialSavers([]);
+          return;
+        }
+        const profiles = savedIds.map((id) => {
+          const profile = relatedProfiles.get(id);
           return {
             id,
-            displayName: data.displayName ?? null,
-            username: data.username ?? null,
-            photoURL: data.photoURL ?? null,
+            displayName: profile?.displayName ?? null,
+            username: profile?.username ?? null,
+            photoURL: profile?.photoURL ?? null,
           } as SocialSaver;
-        })
-      );
-      const orderIndex = new Map(orderedIds.map((id, index) => [id, index]));
-      profiles.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
-      setSocialSavers(profiles);
+        });
+        const orderIndex = new Map(relatedUserIds.map((id, index) => [id, index]));
+        profiles.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
+        setSocialSavers(profiles);
+      } finally {
+        setSocialSaversLoading(false);
+      }
     };
     void load().catch((error) => {
       console.warn("Failed to load social savers", error);
       setSocialSavers([]);
+      setSocialSaversLoading(false);
     });
-  }, [pin, pinSaveStatus, socialListOpen, user?.uid]);
+  }, [pin, pinSaveStatus, relatedProfiles, relatedUserIds, socialGraphLoading, socialListOpen, user?.uid]);
 
   // Reset camera heading to north when the compass button is tapped.
   const handleCompassPress = React.useCallback(() => {
@@ -1490,7 +1485,9 @@ export default function MapScreen() {
             <View style={styles.sheetBody}>
               {socialListOpen ? (
                 <View style={styles.socialList}>
-                  {socialSavers.length ? (
+                  {socialSaversLoading ? (
+                    <Text style={styles.sheetHint}>Loading friends who saved this...</Text>
+                  ) : socialSavers.length ? (
                     <>
                       <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>
                       {socialSavers.map((profile) => (

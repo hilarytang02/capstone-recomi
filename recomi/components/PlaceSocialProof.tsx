@@ -2,18 +2,14 @@ import React from "react"
 import { StyleSheet, Text, View } from "react-native"
 import FontAwesome from "@expo/vector-icons/FontAwesome"
 import {
-  collection,
   doc,
   getDoc,
-  getDocs,
   onSnapshot,
-  query,
-  where,
 } from "firebase/firestore"
 
 import { firestore } from "../shared/firebase/app"
 import { useAuth } from "../shared/context/auth"
-import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION } from "../shared/api/users"
+import { useSocialGraph } from "../shared/context/socialGraph"
 import {
   PLACE_STATS_COLLECTION,
   PLACE_USER_SAVES_SUBCOLLECTION,
@@ -32,9 +28,14 @@ type PlaceEngagement = {
   favouriteCount: number
   wishlistFriend: FriendLabel | null
   favouriteFriend: FriendLabel | null
+  hasSnapshot: boolean
+  friendsResolved: boolean
 }
 
 const MAX_FOLLOWEES_TO_CHECK = 50
+const MIN_DISPLAY_MS = 900
+const EMPTY_INCENTIVE_DELAY_MS = 700
+const FRIEND_LABEL_GRACE_MS = 350
 
 const toMillis = (value: unknown) => {
   if (!value) return 0
@@ -63,8 +64,12 @@ const usePlaceEngagement = (
   transition: { from: "wishlist" | "favourite" | "none" | null; to: "wishlist" | "favourite" | "none" | null } | null
 ): PlaceEngagement => {
   const { user, initializing } = useAuth()
+  const { relatedUserIds, relatedProfiles, loading: socialGraphLoading } = useSocialGraph()
   const [counts, setCounts] = React.useState({ wishlistCount: 0, favouriteCount: 0 })
   const countsCacheRef = React.useRef<Map<string, { wishlistCount: number; favouriteCount: number }>>(new Map())
+  const friendsCacheRef = React.useRef<
+    Map<string, Pick<PlaceEngagement, "wishlistFriend" | "favouriteFriend">>
+  >(new Map())
   const hasSnapshotRef = React.useRef<Map<string, boolean>>(new Map())
   const pendingWritesRef = React.useRef<Map<string, boolean>>(new Map())
   const lastTransitionRef = React.useRef<string | null>(null)
@@ -73,22 +78,29 @@ const usePlaceEngagement = (
     wishlistFriend: null,
     favouriteFriend: null,
   })
+  const [friendsResolved, setFriendsResolved] = React.useState(false)
 
   React.useEffect(() => {
     if (!pin || !user?.uid || initializing) {
       setCounts({ wishlistCount: 0, favouriteCount: 0 })
       setFriends({ wishlistFriend: null, favouriteFriend: null })
+      setFriendsResolved(false)
       return
     }
 
     const placeId = placeIdFromPin(pin)
     const cached = countsCacheRef.current.get(placeId)
+    const cachedFriends = friendsCacheRef.current.get(placeId)
     if (cached) {
       setCounts(cached)
       setHasSnapshot(true)
     } else {
       setCounts({ wishlistCount: 0, favouriteCount: 0 })
       setHasSnapshot(false)
+    }
+    if (cachedFriends) {
+      setFriends(cachedFriends)
+      setFriendsResolved(true)
     }
     const ref = doc(firestore, PLACE_STATS_COLLECTION, placeId)
     const unsubscribe = onSnapshot(ref, (snapshot) => {
@@ -139,29 +151,30 @@ const usePlaceEngagement = (
     let active = true
     if (pin) {
       setFriends({ wishlistFriend: null, favouriteFriend: null })
+      setFriendsResolved(false)
     }
     const load = async () => {
       if (!user?.uid || !pin) {
         if (active) {
           setFriends({ wishlistFriend: null, favouriteFriend: null })
+          setFriendsResolved(true)
         }
         return
       }
 
-      const followsSnapshot = await getDocs(
-        query(collection(firestore, USER_FOLLOWS_COLLECTION), where("followerId", "==", user.uid))
-      )
-      const followeeIds = followsSnapshot.docs
-        .map((docSnap) => (docSnap.data() as { followeeId?: string }).followeeId)
-        .filter((id): id is string => Boolean(id))
-      if (!followeeIds.length) {
+      if (socialGraphLoading) {
+        return
+      }
+
+      if (!relatedUserIds.length) {
         if (active) {
           setFriends({ wishlistFriend: null, favouriteFriend: null })
+          setFriendsResolved(true)
         }
         return
       }
 
-      const limitedFollowees = followeeIds.slice(0, MAX_FOLLOWEES_TO_CHECK)
+      const limitedFollowees = relatedUserIds.slice(0, MAX_FOLLOWEES_TO_CHECK)
       const placeId = placeIdFromPin(pin)
       const saveSnaps = await Promise.all(
         limitedFollowees.map((id) =>
@@ -187,26 +200,25 @@ const usePlaceEngagement = (
 
       const topWishlistId = pickLatest(wishlistCandidates)
       const topFavouriteId = pickLatest(favouriteCandidates)
-      const idsToFetch = Array.from(new Set([topWishlistId, topFavouriteId].filter(Boolean)))
-
-      const profiles = await Promise.all(
-        idsToFetch.map(async (id) => {
-          const profileSnap = await getDoc(doc(firestore, USERS_COLLECTION, id))
-          return {
-            id,
-            label: profileSnap.exists()
-              ? formatUserLabel(profileSnap.data() as { username?: string | null; displayName?: string | null })
-              : "Someone",
-          }
-        })
-      )
-      const labelMap = new Map(profiles.map((profile) => [profile.id, profile.label]))
 
       if (active) {
-        setFriends({
-          wishlistFriend: topWishlistId ? { id: topWishlistId, label: labelMap.get(topWishlistId) ?? "Someone" } : null,
-          favouriteFriend: topFavouriteId ? { id: topFavouriteId, label: labelMap.get(topFavouriteId) ?? "Someone" } : null,
-        })
+        const nextFriends = {
+          wishlistFriend: topWishlistId
+            ? {
+                id: topWishlistId,
+                label: formatUserLabel(relatedProfiles.get(topWishlistId) ?? null),
+              }
+            : null,
+          favouriteFriend: topFavouriteId
+            ? {
+                id: topFavouriteId,
+                label: formatUserLabel(relatedProfiles.get(topFavouriteId) ?? null),
+              }
+            : null,
+        }
+        friendsCacheRef.current.set(placeId, nextFriends)
+        setFriends(nextFriends)
+        setFriendsResolved(true)
       }
     }
 
@@ -214,13 +226,14 @@ const usePlaceEngagement = (
       console.warn("Failed to load place engagement", error)
       if (active) {
         setFriends({ wishlistFriend: null, favouriteFriend: null })
+        setFriendsResolved(true)
       }
     })
 
     return () => {
       active = false
     }
-  }, [pin?.lat, pin?.lng, pin?.placeId, user?.uid])
+  }, [pin?.lat, pin?.lng, pin?.placeId, relatedProfiles, relatedUserIds, socialGraphLoading, user?.uid])
 
   return {
     wishlistCount: counts.wishlistCount,
@@ -228,6 +241,7 @@ const usePlaceEngagement = (
     wishlistFriend: friends.wishlistFriend,
     favouriteFriend: friends.favouriteFriend,
     hasSnapshot,
+    friendsResolved,
   }
 }
 
@@ -242,8 +256,21 @@ export default function PlaceSocialProof({
   transition?: { from: "wishlist" | "favourite" | "none" | null; to: "wishlist" | "favourite" | "none" | null } | null
   onTransitionSettled?: () => void
 }) {
-  const { wishlistCount, favouriteCount, wishlistFriend, favouriteFriend, hasSnapshot } = usePlaceEngagement(pin, transition)
+  const {
+    wishlistCount,
+    favouriteCount,
+    wishlistFriend,
+    favouriteFriend,
+    hasSnapshot,
+    friendsResolved,
+  } = usePlaceEngagement(pin, transition)
   const transitionBaselineRef = React.useRef<{ wishlist: number; favourite: number } | null>(null)
+  const displayTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastDisplayAtRef = React.useRef(0)
+  const incentiveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const friendGraceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [displayedLines, setDisplayedLines] = React.useState<ReturnType<typeof getSocialProofLines>["lines"]>([])
+  const [displayedIncentive, setDisplayedIncentive] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (transition && !transitionBaselineRef.current) {
@@ -272,20 +299,22 @@ export default function PlaceSocialProof({
       onTransitionSettled()
     }
   }, [favouriteCount, onTransitionSettled, transition, wishlistCount])
+
   let displayWishlistCount = Math.max(0, wishlistCount)
   let displayFavouriteCount = Math.max(0, favouriteCount)
-  const { lines, incentive } = React.useMemo(
+  const socialProof = React.useMemo(
     () =>
       getSocialProofLines({
         wishlistCount: displayWishlistCount,
         favouriteCount: displayFavouriteCount,
-        wishlistFriendLabel: wishlistFriend?.label ?? null,
-        favouriteFriendLabel: favouriteFriend?.label ?? null,
+        wishlistFriendLabel: friendsResolved ? wishlistFriend?.label ?? null : null,
+        favouriteFriendLabel: friendsResolved ? favouriteFriend?.label ?? null : null,
         selfBucket: viewerBucket ?? null,
       }),
     [
       displayFavouriteCount,
       displayWishlistCount,
+      friendsResolved,
       favouriteFriend?.label,
       transition?.from,
       transition?.to,
@@ -293,6 +322,110 @@ export default function PlaceSocialProof({
       wishlistFriend?.label,
     ]
   )
+
+  React.useEffect(() => {
+    return () => {
+      if (displayTimerRef.current) {
+        clearTimeout(displayTimerRef.current)
+      }
+      if (incentiveTimerRef.current) {
+        clearTimeout(incentiveTimerRef.current)
+      }
+      if (friendGraceTimerRef.current) {
+        clearTimeout(friendGraceTimerRef.current)
+      }
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (!pin) {
+      if (displayTimerRef.current) {
+        clearTimeout(displayTimerRef.current)
+      }
+      if (incentiveTimerRef.current) {
+        clearTimeout(incentiveTimerRef.current)
+      }
+      if (friendGraceTimerRef.current) {
+        clearTimeout(friendGraceTimerRef.current)
+      }
+      setDisplayedLines([])
+      setDisplayedIncentive(null)
+      lastDisplayAtRef.current = 0
+      return
+    }
+
+    const hasCounts = displayWishlistCount > 0 || displayFavouriteCount > 0
+    const nextLines = socialProof.lines
+    const readyForIncentive = hasSnapshot && friendsResolved && !transition && !hasCounts
+
+    if (incentiveTimerRef.current) {
+      clearTimeout(incentiveTimerRef.current)
+      incentiveTimerRef.current = null
+    }
+
+    if (hasCounts) {
+      const apply = () => {
+        setDisplayedLines(nextLines)
+        setDisplayedIncentive(null)
+        lastDisplayAtRef.current = Date.now()
+      }
+
+      const shouldWaitForFriendLabels =
+        !friendsResolved &&
+        displayedLines.length === 0 &&
+        !displayedIncentive &&
+        !transition
+
+      if (friendGraceTimerRef.current) {
+        clearTimeout(friendGraceTimerRef.current)
+        friendGraceTimerRef.current = null
+      }
+      if (shouldWaitForFriendLabels) {
+        friendGraceTimerRef.current = setTimeout(apply, FRIEND_LABEL_GRACE_MS)
+        return
+      }
+
+      const elapsed = Date.now() - lastDisplayAtRef.current
+      const delay = displayedLines.length > 0 && elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : 0
+
+      if (displayTimerRef.current) {
+        clearTimeout(displayTimerRef.current)
+      }
+      if (delay > 0) {
+        displayTimerRef.current = setTimeout(apply, delay)
+      } else {
+        apply()
+      }
+      return
+    }
+
+    if (displayTimerRef.current) {
+      clearTimeout(displayTimerRef.current)
+      displayTimerRef.current = null
+    }
+    if (friendGraceTimerRef.current) {
+      clearTimeout(friendGraceTimerRef.current)
+      friendGraceTimerRef.current = null
+    }
+
+    if (readyForIncentive) {
+      incentiveTimerRef.current = setTimeout(() => {
+        setDisplayedLines([])
+        setDisplayedIncentive(socialProof.incentive)
+        lastDisplayAtRef.current = Date.now()
+      }, EMPTY_INCENTIVE_DELAY_MS)
+    }
+  }, [
+    displayedLines.length,
+    displayFavouriteCount,
+    displayWishlistCount,
+    friendsResolved,
+    hasSnapshot,
+    pin,
+    socialProof.incentive,
+    socialProof.lines,
+    transition,
+  ])
 
   if (!pin) {
     return null
@@ -302,17 +435,21 @@ export default function PlaceSocialProof({
     return null
   }
 
-  if (incentive) {
+  if (displayedIncentive) {
     return (
       <Text style={styles.incentive} numberOfLines={2}>
-        {incentive}
+        {displayedIncentive}
       </Text>
     )
   }
 
+  if (!displayedLines.length) {
+    return null
+  }
+
   return (
     <View style={styles.inline}>
-      {lines.map((line, index) => (
+      {displayedLines.map((line, index) => (
         <React.Fragment key={line.kind}>
           {index > 0 ? <Text style={styles.separator}>|</Text> : null}
           <View style={styles.inlineItem}>
