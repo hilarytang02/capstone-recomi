@@ -17,7 +17,9 @@ import {
   coordsMatch,
   normalizePin,
   placeIdFromPin,
+  updateRecentSaverIds,
   type PlaceBucket,
+  type PlaceStatsDocument,
 } from "../utils/placeStats"
 
 export type SavedListDefinition = {
@@ -293,7 +295,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
 
       await runTransaction(firestore, async (tx) => {
         const snapshot = await tx.get(placeRef)
-        const data = snapshot.exists() ? snapshot.data() : {}
+        const data = (snapshot.exists() ? snapshot.data() : {}) as PlaceStatsDocument
         const currentWishlist = typeof data?.wishlistCount === "number" ? data.wishlistCount : 0
         const currentFavourite = typeof data?.favouriteCount === "number" ? data.favouriteCount : 0
         let wishlistCount = currentWishlist
@@ -311,11 +313,26 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
           favouriteCount += 1
         }
 
+        const recentSaverIds = updateRecentSaverIds(data.recentSaverIds, user.uid, nextStatus !== "none")
+        const recentWishlistSaverIds = updateRecentSaverIds(
+          data.recentWishlistSaverIds,
+          user.uid,
+          nextStatus === "wishlist"
+        )
+        const recentFavouriteSaverIds = updateRecentSaverIds(
+          data.recentFavouriteSaverIds,
+          user.uid,
+          nextStatus === "favourite"
+        )
+
         tx.set(
           placeRef,
           {
             wishlistCount,
             favouriteCount,
+            recentSaverIds,
+            recentWishlistSaverIds,
+            recentFavouriteSaverIds,
             lat: normalizedPin.lat,
             lng: normalizedPin.lng,
             label: normalizedPin.label ?? null,
@@ -467,14 +484,26 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       setLists((prev) => {
         const updatedLists = prev.filter((list) => list.id !== listId)
         setEntries((prevEntries) => {
+          const removedEntries = prevEntries.filter((entry) => entry.listId === listId)
           const updatedEntries = prevEntries.filter((entry) => entry.listId !== listId)
+          const affectedPins = new Map<string, SavedEntry["pin"]>()
+          removedEntries.forEach((entry) => {
+            affectedPins.set(placeIdFromPin(entry.pin), entry.pin)
+          })
+          affectedPins.forEach((entryPin) => {
+            void updatePlaceStats(
+              entryPin,
+              getPinAggregateStatus(prevEntries, entryPin),
+              getPinAggregateStatus(updatedEntries, entryPin)
+            )
+          })
           void persist(updatedEntries)
           return updatedEntries
         })
         return updatedLists
       })
     },
-    [persist, user?.uid]
+    [getPinAggregateStatus, persist, updatePlaceStats, user?.uid]
   )
 
   const updateListCover = React.useCallback(

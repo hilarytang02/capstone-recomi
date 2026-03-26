@@ -31,10 +31,10 @@ import {
   LIST_VISIBILITY_OPTIONS,
 } from "../../shared/context/savedLists";
 import PlaceSocialProof from "../../components/PlaceSocialProof";
+import { usePlaceEngagement } from "../../shared/hooks/usePlaceEngagement";
 import { useAuth } from "../../shared/context/auth";
-import { useSocialGraph } from "../../shared/context/socialGraph";
 import { firestore } from "../../shared/firebase/app";
-import { PLACE_STATS_COLLECTION, PLACE_USER_SAVES_SUBCOLLECTION, placeIdFromPin } from "../../shared/utils/placeStats";
+import { placeIdFromPin } from "../../shared/utils/placeStats";
 
 const WORLD: Region = {
   latitude: 20,
@@ -180,7 +180,6 @@ const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
 // Combines search, map camera control, and list-saving UX into the home screen.
 export default function MapScreen() {
   const { user } = useAuth();
-  const { relatedUserIds, relatedProfiles, loading: socialGraphLoading } = useSocialGraph();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
@@ -220,8 +219,6 @@ export default function MapScreen() {
   const [tenantAnchor, setTenantAnchor] = React.useState<{ lat: number; lng: number } | null>(null);
   const tenantPickerHidden = sheetState === "expanded";
   const [socialListOpen, setSocialListOpen] = React.useState(false);
-  const [socialSavers, setSocialSavers] = React.useState<SocialSaver[]>([]);
-  const [socialSaversLoading, setSocialSaversLoading] = React.useState(false);
   const [inviteModalOpen, setInviteModalOpen] = React.useState(false);
   const [inviteTarget, setInviteTarget] = React.useState<SocialSaver | null>(null);
   const [inviteMessage, setInviteMessage] = React.useState("");
@@ -283,6 +280,13 @@ export default function MapScreen() {
   const deferredSavedFilterMode = React.useDeferredValue(savedFilterMode);
   const deferredSelectedMyListIds = React.useDeferredValue(selectedMyListIds);
   const deferredSelectedLikedListKeys = React.useDeferredValue(selectedLikedListKeys);
+  const {
+    wishlistCount: engagementWishlistCount,
+    favouriteCount: engagementFavouriteCount,
+    matchedProfiles: socialSavers,
+    hasSnapshot: engagementHasSnapshot,
+    friendsResolved: engagementFriendsResolved,
+  } = usePlaceEngagement(pin, pinSaveTransition);
 
   React.useEffect(() => {
     setSelectedMyListIds((prev) => prev.filter((id) => lists.some((list) => list.id === id)));
@@ -836,60 +840,11 @@ export default function MapScreen() {
     setInviteModalOpen(false);
   }, [defaultInviteMessage, inviteMessage, inviteTarget, pin, user?.uid]);
 
-  React.useEffect(() => {
-    const load = async () => {
-      if (!pin || !user?.uid) {
-        setSocialSavers([]);
-        setSocialSaversLoading(false);
-        return;
-      }
-      if (!socialListOpen && !pinSaveStatus) {
-        setSocialSavers([]);
-        setSocialSaversLoading(false);
-        return;
-      }
-      setSocialSaversLoading(true);
-      try {
-        const placeId = placeIdFromPin(pin);
-        if (socialGraphLoading) {
-          return;
-        }
-        if (!relatedUserIds.length) {
-          setSocialSavers([]);
-          return;
-        }
-        const saveSnaps = await Promise.all(
-          relatedUserIds.map((id) =>
-            getDoc(doc(firestore, PLACE_STATS_COLLECTION, placeId, PLACE_USER_SAVES_SUBCOLLECTION, id))
-          )
-        );
-        const savedIds = relatedUserIds.filter((_, index) => saveSnaps[index].exists());
-        if (!savedIds.length) {
-          setSocialSavers([]);
-          return;
-        }
-        const profiles = savedIds.map((id) => {
-          const profile = relatedProfiles.get(id);
-          return {
-            id,
-            displayName: profile?.displayName ?? null,
-            username: profile?.username ?? null,
-            photoURL: profile?.photoURL ?? null,
-          } as SocialSaver;
-        });
-        const orderIndex = new Map(relatedUserIds.map((id, index) => [id, index]));
-        profiles.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
-        setSocialSavers(profiles);
-      } finally {
-        setSocialSaversLoading(false);
-      }
-    };
-    void load().catch((error) => {
-      console.warn("Failed to load social savers", error);
-      setSocialSavers([]);
-      setSocialSaversLoading(false);
-    });
-  }, [pin, pinSaveStatus, relatedProfiles, relatedUserIds, socialGraphLoading, socialListOpen, user?.uid]);
+  const socialSaversLoading =
+    Boolean(pin) &&
+    socialListOpen &&
+    (!engagementHasSnapshot || !engagementFriendsResolved);
+  const totalEngagementCount = engagementWishlistCount + engagementFavouriteCount;
 
   // Reset camera heading to north when the compass button is tapped.
   const handleCompassPress = React.useCallback(() => {
@@ -1487,6 +1442,8 @@ export default function MapScreen() {
                 <View style={styles.socialList}>
                   {socialSaversLoading ? (
                     <Text style={styles.sheetHint}>Loading friends who saved this...</Text>
+                  ) : totalEngagementCount === 0 ? (
+                    <Text style={styles.sheetHint}>Be the first to save this spot!</Text>
                   ) : socialSavers.length ? (
                     <>
                       <Text style={styles.socialListTitle}>Your friends want to go. Visit together!</Text>

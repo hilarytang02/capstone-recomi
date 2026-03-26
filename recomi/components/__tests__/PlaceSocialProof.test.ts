@@ -7,6 +7,7 @@ describe("PlaceSocialProof helpers", () => {
       favouriteCount: 0,
       wishlistFriendLabel: null,
       favouriteFriendLabel: null,
+      selfBucket: null,
     })
 
     expect(result.lines).toHaveLength(0)
@@ -91,5 +92,26 @@ describe("PlaceSocialProof helpers", () => {
     expect(
       buildLineTextWithSelf({ count: 1, friendLabel: null, includeSelf: true })
     ).toBe("you")
+  })
+
+  test("formats viewer plus friend with no remainder", () => {
+    expect(
+      buildLineTextWithSelf({ count: 2, friendLabel: "@mia", includeSelf: true })
+    ).toBe("you and @mia")
+  })
+
+  test("falls back to plain people count when no labels exist", () => {
+    const result = getSocialProofLines({
+      wishlistCount: 2,
+      favouriteCount: 0,
+      wishlistFriendLabel: null,
+      favouriteFriendLabel: null,
+      selfBucket: null,
+    })
+
+    expect(result).toEqual({
+      lines: [{ kind: "wishlist", text: "2 people" }],
+      incentive: null,
+    })
   })
 })
