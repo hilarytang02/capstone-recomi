@@ -21,6 +21,7 @@ import { firestore } from "@/shared/firebase/app";
 import {
   USERS_COLLECTION,
   isUsernameAvailable,
+  resolveProfilePhotoURL,
   updateProfileDetails,
   type UserDocument,
 } from "@/shared/api/users";
@@ -182,11 +183,12 @@ export default function EditProfileScreen() {
 
     setSaving(true);
     try {
+      const resolvedPhotoURL = await resolveProfilePhotoURL(user.uid, photoURL ?? null);
       await updateProfileDetails(user.uid, {
         displayName: displayName.trim(),
         username: normalizedUsername,
         bio: bio.trim() ? bio.trim().slice(0, BIO_LIMIT) : null,
-        photoURL: photoURL ?? null,
+        photoURL: resolvedPhotoURL,
       });
       router.replace("/(tabs)/profile");
     } catch (err) {

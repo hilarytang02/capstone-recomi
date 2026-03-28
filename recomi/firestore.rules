@@ -3,23 +3,39 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     match /users/{uid} {
-      // Everyone signed in can read profiles; allow lookups for username sign-in
       function isSignedIn() {
         return request.auth != null;
       }
 
-      // Allow reads if signed in or if query only accesses public fields needed for login.
-      allow read: if isSignedIn() || (!isSignedIn() && request.resource == null);
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
 
-      // Only owner can write profile
-      allow write: if isSignedIn() && request.auth.uid == uid;
+      function isFollower() {
+        return request.auth != null &&
+          exists(/databases/$(database)/documents/userFollows/$(request.auth.uid + "_" + uid));
+      }
+
+      function listVisibility() {
+        return resource.data.visibility;
+      }
+
+      function isPublicList() {
+        return !("visibility" in resource.data) || listVisibility() == "public";
+      }
+
+      function isFollowersList() {
+        return "visibility" in resource.data && listVisibility() == "followers";
+      }
+
+      allow read: if isSignedIn() || (!isSignedIn() && request.resource == null);
+      allow write: if isOwner();
 
       match /lists/{listId} {
-        function isOwner() {
-          return request.auth != null && request.auth.uid == uid;
-        }
+        allow read: if isOwner()
+          || isPublicList()
+          || (isFollowersList() && isFollower());
 
-        allow read: if isOwner() || resource.data.visibility == "public";
         allow write: if isOwner();
       }
     }
@@ -50,7 +66,8 @@ service cloud.firestore {
     match /invites/{inviteId} {
       allow read: if request.auth != null
         && (resource.data.fromUserId == request.auth.uid || resource.data.toUserId == request.auth.uid);
-      allow create: if request.auth != null && request.resource.data.fromUserId == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.data.fromUserId == request.auth.uid;
       allow update, delete: if false;
     }
 

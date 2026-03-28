@@ -17,9 +17,10 @@ import {
   type QueryConstraint,
   type QueryDocumentSnapshot,
 } from "firebase/firestore"
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage"
 import { httpsCallable } from "firebase/functions"
 
-import { firebaseFunctions, firestore } from "@/shared/firebase/app"
+import { firebaseFunctions, firebaseStorage, firestore } from "@/shared/firebase/app"
 
 export const USERS_COLLECTION = "users"
 export const USER_FOLLOWS_COLLECTION = "userFollows"
@@ -107,6 +108,9 @@ export function canViewList(
 }
 
 const DEFAULT_LIMIT = 25
+
+const isLocalPhotoUri = (value: string) =>
+  value.startsWith("file:") || value.startsWith("content:") || value.startsWith("ph://") || value.startsWith("assets-library:")
 
 // Normalizes usernames so we can enforce uniqueness irrespective of case/punctuation.
 const sanitizeUsername = (value: string) =>
@@ -217,6 +221,31 @@ export async function isUsernameAvailablePublic(username: string): Promise<boole
 export async function deleteOwnAccount(): Promise<void> {
   const callable = httpsCallable<void, DeleteOwnAccountResponse>(firebaseFunctions, "deleteOwnAccount")
   await callable()
+}
+
+export async function resolveProfilePhotoURL(uid: string, photoURL: string | null): Promise<string | null> {
+  if (!photoURL) {
+    const profilePhotoRef = ref(firebaseStorage, `profilePhotos/${uid}.jpg`)
+    try {
+      await deleteObject(profilePhotoRef)
+    } catch {
+      // Ignore missing objects or cleanup failures when the user removes a photo.
+    }
+    return null
+  }
+
+  if (!isLocalPhotoUri(photoURL)) {
+    return photoURL
+  }
+
+  const response = await fetch(photoURL)
+  const blob = await response.blob()
+  const profilePhotoRef = ref(firebaseStorage, `profilePhotos/${uid}.jpg`)
+  await uploadBytes(profilePhotoRef, blob, {
+    contentType: blob.type || "image/jpeg",
+    cacheControl: "public,max-age=3600",
+  })
+  return getDownloadURL(profilePhotoRef)
 }
 
 export async function resolveUsernameEmail(username: string): Promise<string | null> {

@@ -4,7 +4,14 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 
 import { useAuth } from "@/shared/context/auth";
-import { completeOnboarding, deleteOwnAccount, isUsernameAvailable, type UserDocument, USERS_COLLECTION } from "@/shared/api/users";
+import {
+  completeOnboarding,
+  deleteOwnAccount,
+  isUsernameAvailable,
+  resolveProfilePhotoURL,
+  type UserDocument,
+  USERS_COLLECTION,
+} from "@/shared/api/users";
 import { doc, getDoc } from "firebase/firestore";
 import { firestore } from "@/shared/firebase/app";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -209,11 +216,12 @@ export default function OnboardingScreen() {
 
     setSaving(true);
     try {
+      const resolvedPhotoURL = await resolveProfilePhotoURL(user.uid, photoURL ?? null);
       await completeOnboarding(user.uid, {
         displayName: displayName.trim(),
         username: normalizedUsername,
         bio: bio.trim() || null,
-        photoURL: photoURL ?? null,
+        photoURL: resolvedPhotoURL,
       });
       await AsyncStorage.removeItem(stepStorageKey);
       clearSignupDraft();
