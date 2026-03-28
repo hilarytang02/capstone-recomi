@@ -24,7 +24,7 @@ export function SavedPlaceMarkerIcon({
     <View style={outerStyles}>
       <FontAwesome name="heart" size={10} color={heartColor} />
       {bucket === "favourite" ? (
-        <Text style={[styles.sparkle, { color: sparkleColor }]}>✦</Text>
+        <Text style={[styles.sparkle, { color: sparkleColor }]}>✨</Text>
       ) : null}
     </View>
   );
@@ -54,9 +54,9 @@ const styles = StyleSheet.create({
   },
   sparkle: {
     position: "absolute",
-    top: -3,
-    right: -2,
-    fontSize: 9,
+    top: -4,
+    right: -4,
+    fontSize: 8,
     fontWeight: "700",
   },
 });

@@ -1289,16 +1289,13 @@ export default function MapScreen() {
         </View>
       )}
       {showSavedMarkerFilters && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.savedFilterScrollContent}
+        <View
           style={[styles.savedFilterScroll, { top: insets.top + 72 }]}
         >
           {[
-            { key: "all" as const, label: "All saves" },
-            { key: "mine" as const, label: "My saves" },
-            { key: "friends" as const, label: "Friends' saves" },
+            { key: "all" as const, label: "All" },
+            { key: "mine" as const, label: "Mine" },
+            { key: "friends" as const, label: "Following" },
             { key: "custom" as const, label: "Custom" },
           ].map((filter) => {
             const selected = savedFilterMode === filter.key;
@@ -1330,7 +1327,7 @@ export default function MapScreen() {
               </Pressable>
             );
           })}
-        </ScrollView>
+        </View>
       )}
       {showSuggestions && (
         <View
@@ -1749,132 +1746,136 @@ export default function MapScreen() {
               <Text style={styles.sheetCloseText}>Done</Text>
             </Pressable>
           </View>
-
-          <View style={styles.customFilterSection}>
-            <View style={styles.customFilterSectionHeader}>
-              <Pressable
-                onPress={() => setMyListsExpanded((prev) => !prev)}
-                style={styles.customFilterSectionToggle}
-              >
-                <Text style={styles.customFilterSectionTitle}>My lists</Text>
-                <Text style={styles.customFilterSectionChevron}>{myListsExpanded ? "Hide" : "Show"}</Text>
-              </Pressable>
-              <View style={styles.customFilterActions}>
-                <Pressable onPress={() => setSelectedMyListIds(lists.map((list) => list.id))}>
-                  <Text style={styles.customFilterActionText}>Select all</Text>
-                </Pressable>
-                <Pressable onPress={() => setSelectedMyListIds([])}>
-                  <Text style={styles.customFilterActionText}>Clear</Text>
-                </Pressable>
-              </View>
-            </View>
-            {myListsExpanded ? (
-              <View style={styles.customFilterOptions}>
-                {lists.length ? (
-                  lists.map((list) => {
-                    const selected = selectedMyListIds.includes(list.id);
-                    return (
-                      <Pressable
-                        key={list.id}
-                        onPress={() =>
-                          setSelectedMyListIds((prev) =>
-                            prev.includes(list.id)
-                              ? prev.filter((id) => id !== list.id)
-                              : [...prev, list.id]
-                          )
-                        }
-                        style={[styles.customFilterOption, selected && styles.customFilterOptionActive]}
-                      >
-                        <View style={styles.customFilterOptionRow}>
-                          <Text style={[styles.customFilterOptionText, selected && styles.customFilterOptionTextActive]}>
-                            {list.name}
-                          </Text>
-                          <View
-                            style={[
-                              styles.customFilterCheckbox,
-                              selected && styles.customFilterCheckboxChecked,
-                            ]}
-                          >
-                            {selected ? (
-                              <FontAwesome name="check" size={10} color="#ffffff" />
-                            ) : null}
-                          </View>
-                        </View>
-                      </Pressable>
-                    );
-                  })
-                ) : (
-                  <Text style={styles.customFilterEmptyText}>No personal lists yet.</Text>
-                )}
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.customFilterSection}>
-            <View style={styles.customFilterSectionHeader}>
-              <Pressable
-                onPress={() => setLikedListsExpanded((prev) => !prev)}
-                style={styles.customFilterSectionToggle}
-              >
-                <Text style={styles.customFilterSectionTitle}>My liked lists</Text>
-                <Text style={styles.customFilterSectionChevron}>{likedListsExpanded ? "Hide" : "Show"}</Text>
-              </Pressable>
-              <View style={styles.customFilterActions}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.customFilterScrollContent}
+          >
+            <View style={styles.customFilterSection}>
+              <View style={styles.customFilterSectionHeader}>
                 <Pressable
-                  onPress={() =>
-                    setSelectedLikedListKeys(likedLists.map((list) => `${list.ownerId}:${list.listId}`))
-                  }
+                  onPress={() => setMyListsExpanded((prev) => !prev)}
+                  style={styles.customFilterSectionToggle}
                 >
-                  <Text style={styles.customFilterActionText}>Select all</Text>
+                  <Text style={styles.customFilterSectionTitle}>My lists</Text>
+                  <Text style={styles.customFilterSectionChevron}>{myListsExpanded ? "Hide" : "Show"}</Text>
                 </Pressable>
-                <Pressable onPress={() => setSelectedLikedListKeys([])}>
-                  <Text style={styles.customFilterActionText}>Clear</Text>
-                </Pressable>
+                <View style={styles.customFilterActions}>
+                  <Pressable onPress={() => setSelectedMyListIds(lists.map((list) => list.id))}>
+                    <Text style={styles.customFilterActionText}>Select all</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setSelectedMyListIds([])}>
+                    <Text style={styles.customFilterActionText}>Clear</Text>
+                  </Pressable>
+                </View>
               </View>
-            </View>
-            {likedListsExpanded ? (
-              <View style={styles.customFilterOptions}>
-                {likedLists.length ? (
-                  likedLists.map((list) => {
-                    const key = `${list.ownerId}:${list.listId}`;
-                    const selected = selectedLikedListKeys.includes(key);
-                    const ownerPrefix = list.ownerUsername ? `@${list.ownerUsername}` : list.ownerDisplayName ?? "Liked";
-                    return (
-                      <Pressable
-                        key={key}
-                        onPress={() =>
-                          setSelectedLikedListKeys((prev) =>
-                            prev.includes(key)
-                              ? prev.filter((item) => item !== key)
-                              : [...prev, key]
-                          )
-                        }
-                        style={[styles.customFilterOption, selected && styles.customFilterOptionActive]}
-                      >
-                        <View style={styles.customFilterOptionRow}>
-                          <Text style={[styles.customFilterOptionText, selected && styles.customFilterOptionTextActive]}>
-                            {ownerPrefix}: {list.listName}
-                          </Text>
-                          <View
-                            style={[
-                              styles.customFilterCheckbox,
-                              selected && styles.customFilterCheckboxChecked,
-                            ]}
-                          >
-                            {selected ? (
-                              <FontAwesome name="check" size={10} color="#ffffff" />
-                            ) : null}
+              {myListsExpanded ? (
+                <View style={styles.customFilterOptions}>
+                  {lists.length ? (
+                    lists.map((list) => {
+                      const selected = selectedMyListIds.includes(list.id);
+                      return (
+                        <Pressable
+                          key={list.id}
+                          onPress={() =>
+                            setSelectedMyListIds((prev) =>
+                              prev.includes(list.id)
+                                ? prev.filter((id) => id !== list.id)
+                                : [...prev, list.id]
+                            )
+                          }
+                          style={[styles.customFilterOption, selected && styles.customFilterOptionActive]}
+                        >
+                          <View style={styles.customFilterOptionRow}>
+                            <Text style={[styles.customFilterOptionText, selected && styles.customFilterOptionTextActive]}>
+                              {list.name}
+                            </Text>
+                            <View
+                              style={[
+                                styles.customFilterCheckbox,
+                                selected && styles.customFilterCheckboxChecked,
+                              ]}
+                            >
+                              {selected ? (
+                                <FontAwesome name="check" size={10} color="#ffffff" />
+                              ) : null}
+                            </View>
                           </View>
-                        </View>
-                      </Pressable>
-                    );
-                  })
-                ) : (
-                  <Text style={styles.customFilterEmptyText}>No liked lists yet.</Text>
-                )}
+                        </Pressable>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.customFilterEmptyText}>No personal lists yet.</Text>
+                  )}
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.customFilterSection}>
+              <View style={styles.customFilterSectionHeader}>
+                <Pressable
+                  onPress={() => setLikedListsExpanded((prev) => !prev)}
+                  style={styles.customFilterSectionToggle}
+                >
+                  <Text style={styles.customFilterSectionTitle}>My liked lists</Text>
+                  <Text style={styles.customFilterSectionChevron}>{likedListsExpanded ? "Hide" : "Show"}</Text>
+                </Pressable>
+                <View style={styles.customFilterActions}>
+                  <Pressable
+                    onPress={() =>
+                      setSelectedLikedListKeys(likedLists.map((list) => `${list.ownerId}:${list.listId}`))
+                    }
+                  >
+                    <Text style={styles.customFilterActionText}>Select all</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setSelectedLikedListKeys([])}>
+                    <Text style={styles.customFilterActionText}>Clear</Text>
+                  </Pressable>
+                </View>
               </View>
-            ) : null}
-          </View>
+              {likedListsExpanded ? (
+                <View style={styles.customFilterOptions}>
+                  {likedLists.length ? (
+                    likedLists.map((list) => {
+                      const key = `${list.ownerId}:${list.listId}`;
+                      const selected = selectedLikedListKeys.includes(key);
+                      const ownerPrefix = list.ownerUsername ? `@${list.ownerUsername}` : list.ownerDisplayName ?? "Liked";
+                      return (
+                        <Pressable
+                          key={key}
+                          onPress={() =>
+                            setSelectedLikedListKeys((prev) =>
+                              prev.includes(key)
+                                ? prev.filter((item) => item !== key)
+                                : [...prev, key]
+                            )
+                          }
+                          style={[styles.customFilterOption, selected && styles.customFilterOptionActive]}
+                        >
+                          <View style={styles.customFilterOptionRow}>
+                            <Text style={[styles.customFilterOptionText, selected && styles.customFilterOptionTextActive]}>
+                              {ownerPrefix}: {list.listName}
+                            </Text>
+                            <View
+                              style={[
+                                styles.customFilterCheckbox,
+                                selected && styles.customFilterCheckboxChecked,
+                              ]}
+                            >
+                              {selected ? (
+                                <FontAwesome name="check" size={10} color="#ffffff" />
+                              ) : null}
+                            </View>
+                          </View>
+                        </Pressable>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.customFilterEmptyText}>No liked lists yet.</Text>
+                  )}
+                </View>
+              ) : null}
+            </View>
+          </ScrollView>
         </View>
       </Modal>
       <Modal
@@ -2058,18 +2059,17 @@ const styles = StyleSheet.create({
   },
   savedFilterScroll: {
     position: "absolute",
-    left: 0,
-    right: 0,
+    left: 16,
+    right: 16,
     zIndex: 9,
-  },
-  savedFilterScrollContent: {
-    paddingHorizontal: 16,
+    flexDirection: "row",
     gap: 8,
   },
   savedFilterChip: {
-    height: 34,
-    maxWidth: 180,
-    paddingHorizontal: 12,
+    flex: 1,
+    minWidth: 0,
+    height: 36,
+    paddingHorizontal: 8,
     borderRadius: 17,
     backgroundColor: "rgba(255,255,255,0.94)",
     borderWidth: 1,
@@ -2086,9 +2086,10 @@ const styles = StyleSheet.create({
     borderColor: "#0f172a",
   },
   savedFilterChipText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: "#0f172a",
+    textAlign: "center",
   },
   savedFilterChipTextActive: {
     color: "#ffffff",
@@ -2105,6 +2106,9 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 10,
+  },
+  customFilterScrollContent: {
+    paddingBottom: 8,
   },
   customFilterHeader: {
     flexDirection: "row",
