@@ -85,6 +85,7 @@ type SavedListsContextValue = {
   removeEntry: (listId: string, pin: SavedEntry["pin"]) => void
   addList: (name: string, visibility?: SavedListDefinition["visibility"]) => SavedListDefinition
   removeList: (listId: string) => void
+  updateListName: (listId: string, name: string) => void
   updateListCover: (listId: string, coverImage: string | null) => void
   likeList: (liked: LikedListRef) => void
   unlikeList: (ownerId: string, listId: string) => void
@@ -525,6 +526,24 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
     [user?.uid]
   )
 
+  const updateListName = React.useCallback(
+    (listId: string, name: string) => {
+      const trimmed = name.trim()
+      if (!trimmed) {
+        throw new Error("List name must not be empty")
+      }
+      if (user?.uid) {
+        void setDoc(
+          doc(firestore, "users", user.uid, "lists", listId),
+          { name: trimmed, updatedAt: serverTimestamp() },
+          { merge: true }
+        )
+      }
+      setLists((prev) => prev.map((list) => (list.id === listId ? { ...list, name: trimmed } : list)))
+    },
+    [user?.uid]
+  )
+
   const [mapFocusEntry, setMapFocusEntry] = React.useState<SavedEntry | null>(null)
 
   // Let map consumers know which entry should be highlighted.
@@ -601,6 +620,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       removeEntry,
       addList,
       removeList,
+      updateListName,
       updateListCover,
       likedLists,
       likedListsVisible,
@@ -619,6 +639,7 @@ export function SavedListsProvider({ children }: { children: React.ReactNode }) 
       removeEntry,
       addList,
       removeList,
+      updateListName,
       updateListCover,
       likedLists,
       likedListsVisible,

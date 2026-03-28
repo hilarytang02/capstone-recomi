@@ -92,6 +92,7 @@ export default function ProfileScreen() {
     entries,
     lists,
     removeList,
+    updateListName,
     addList,
     removeEntry,
     requestMapFocus,
@@ -116,6 +117,9 @@ export default function ProfileScreen() {
   const [mapModalVisible, setMapModalVisible] = React.useState(false);
   const [activePinEntry, setActivePinEntry] = React.useState<SavedEntry | null>(null);
   const [expandedLikedId, setExpandedLikedId] = React.useState<string | null>(null);
+  const [isRenamingList, setIsRenamingList] = React.useState(false);
+  const [renameListName, setRenameListName] = React.useState("");
+  const [renameListError, setRenameListError] = React.useState<string | null>(null);
   const [selfProfile, setSelfProfile] = React.useState<UserDocument | null>(null);
   const [listPickerOpen, setListPickerOpen] = React.useState(false);
   const [listSearch, setListSearch] = React.useState("");
@@ -534,25 +538,69 @@ export default function ProfileScreen() {
   React.useEffect(() => {
     setIsEditing(false);
     setPendingRemovals({});
-  }, [selectedListId]);
+    setIsRenamingList(false);
+    setRenameListName(selectedGroup?.definition.name ?? "");
+    setRenameListError(null);
+  }, [selectedGroup?.definition.name, selectedListId]);
 
   const toggleEditing = React.useCallback(() => {
-    if (!totalItems) {
+    if (!selectedGroup) {
       return;
     }
     if (isEditing) {
       setIsEditing(false);
       setPendingRemovals({});
+      setIsRenamingList(false);
+      setRenameListError(null);
+      setRenameListName(selectedGroup.definition.name);
     } else {
       exitDeleteMode();
       setIsEditing(true);
     }
-  }, [exitDeleteMode, isEditing, totalItems]);
+  }, [exitDeleteMode, isEditing, selectedGroup]);
 
   const handleCancelEditing = React.useCallback(() => {
     setPendingRemovals({});
     setIsEditing(false);
+    setIsRenamingList(false);
+    setRenameListError(null);
   }, []);
+
+  const stopRenamingList = React.useCallback(() => {
+    setIsRenamingList(false);
+    setRenameListError(null);
+    setRenameListName(selectedGroup?.definition.name ?? "");
+  }, [selectedGroup?.definition.name]);
+
+  const handleRenameInputFocus = React.useCallback(() => {
+    if (!isEditing || !selectedGroup) return;
+    if (!isRenamingList) {
+      setRenameListName(selectedGroup.definition.name);
+      setRenameListError(null);
+      setIsRenamingList(true);
+    }
+  }, [isEditing, isRenamingList, selectedGroup]);
+
+  const handleRenameList = React.useCallback(() => {
+    if (!selectedGroup) return;
+    const trimmed = renameListName.trim();
+    if (!trimmed) {
+      setRenameListError("List name must not be empty.");
+      return;
+    }
+    if (trimmed === selectedGroup.definition.name) {
+      setIsRenamingList(false);
+      setRenameListError(null);
+      return;
+    }
+    try {
+      updateListName(selectedGroup.definition.id, trimmed);
+      setIsRenamingList(false);
+      setRenameListError(null);
+    } catch (error) {
+      setRenameListError(error instanceof Error ? error.message : "Unable to rename list.");
+    }
+  }, [renameListName, selectedGroup, updateListName]);
 
   const handleConfirmRemovals = React.useCallback(() => {
     Object.values(pendingRemovals).forEach((entry) => {
@@ -916,7 +964,52 @@ export default function ProfileScreen() {
               <View style={styles.detailSection}>
                 <View style={styles.sectionHeader}>
                   <View style={styles.sectionTitleBlock}>
-                    <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
+                    {isEditing && isRenamingList ? (
+                      <View style={styles.sectionTitleEditWrap}>
+                        <TextInput
+                          value={renameListName}
+                          onChangeText={(text) => {
+                            setRenameListName(text);
+                            if (renameListError) setRenameListError(null);
+                          }}
+                          onSubmitEditing={handleRenameList}
+                          autoFocus
+                          style={styles.sectionTitleInput}
+                          placeholder="List name"
+                          maxLength={50}
+                          returnKeyType="done"
+                        />
+                        <View style={styles.sectionTitleEditActions}>
+                          <Pressable
+                            onPress={handleRenameList}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Save list name"
+                          >
+                            <FontAwesome name="check" size={16} color="#0f766e" />
+                          </Pressable>
+                          <Pressable
+                            onPress={stopRenamingList}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Cancel renaming list"
+                          >
+                            <FontAwesome name="close" size={16} color="#64748b" />
+                          </Pressable>
+                        </View>
+                      </View>
+                    ) : (
+                      <Pressable
+                        disabled={!isEditing}
+                        onPress={handleRenameInputFocus}
+                        style={[styles.sectionTitleRow, isEditing && styles.sectionTitleRowEditable]}
+                        accessibilityRole={isEditing ? "button" : undefined}
+                        accessibilityLabel={isEditing ? `Rename ${selectedGroup.definition.name}` : undefined}
+                      >
+                        <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
+                        {isEditing ? <FontAwesome name="pencil" size={13} color="#64748b" /> : null}
+                      </Pressable>
+                    )}
                     <Text style={styles.sectionMeta}>
                       {isEditing
                         ? pendingRemovalCount
@@ -924,8 +1017,11 @@ export default function ProfileScreen() {
                           : "Select places to remove from this list"
                         : `${totalItems} ${totalItems === 1 ? "place saved" : "places saved"}`}
                     </Text>
+                    {isEditing && renameListError ? (
+                      <Text style={styles.sectionRenameError}>{renameListError}</Text>
+                    ) : null}
                   </View>
-                  {!!totalItems && (
+                  {selectedGroup ? (
                     <Pressable
                       style={[styles.editButton, isEditing && styles.editButtonActive]}
                       hitSlop={10}
@@ -935,7 +1031,7 @@ export default function ProfileScreen() {
                     >
                       <FontAwesome name={isEditing ? "close" : "pencil"} size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
                     </Pressable>
-                  )}
+                  ) : null}
                 </View>
                 {isEditing ? (
                   <View style={styles.editModeBanner}>
@@ -2078,9 +2174,51 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0f172a',
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 8,
+    marginLeft: -6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  sectionTitleRowEditable: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  sectionTitleEditWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sectionTitleInput: {
+    minWidth: 0,
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#cbd5f5',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0f172a',
+    backgroundColor: '#ffffff',
+  },
+  sectionTitleEditActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   sectionMeta: {
     fontSize: 12,
     color: '#64748b',
+  },
+  sectionRenameError: {
+    fontSize: 12,
+    color: '#dc2626',
   },
   sectionHeader: {
     flexDirection: 'row',
