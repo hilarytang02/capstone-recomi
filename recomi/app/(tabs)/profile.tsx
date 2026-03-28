@@ -8,7 +8,6 @@ import {
   Image,
   KeyboardAvoidingView,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -31,6 +30,7 @@ import {
 import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "../../components/PinDetailSheet";
+import { SavedPlaceMarkerIcon } from "../../components/SavedPlaceMarkerIcon";
 import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { firestore } from "../../shared/firebase/app";
 import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
@@ -93,6 +93,7 @@ export default function ProfileScreen() {
     removeList,
     addList,
     removeEntry,
+    requestMapFocus,
     likedLists,
     likedListsVisible,
     setLikedListsVisibility,
@@ -123,6 +124,17 @@ export default function ProfileScreen() {
   const [followersList, setFollowersList] = React.useState<ProfileLite[]>([]);
   const [followingList, setFollowingList] = React.useState<ProfileLite[]>([]);
   const [followLoading, setFollowLoading] = React.useState(false);
+  const resetWiggle = React.useCallback(() => {
+    wiggleLoop.current?.stop();
+    wiggleLoop.current = null;
+    wiggleAnim.stopAnimation(() => {
+      wiggleAnim.setValue(0);
+    });
+  }, [wiggleAnim]);
+  const exitDeleteMode = React.useCallback(() => {
+    setDeleteMode(false);
+    resetWiggle();
+  }, [resetWiggle]);
   const handleOpenAccountEditor = React.useCallback(() => {
     router.push("/(tabs)/profile-edit");
   }, [router]);
@@ -267,14 +279,14 @@ export default function ProfileScreen() {
   React.useEffect(() => {
     if (!lists.length) {
       setSelectedListId(null);
-      setDeleteMode(false);
+      exitDeleteMode();
       return;
     }
 
     if (!selectedListId || !lists.some((list) => list.id === selectedListId)) {
       setSelectedListId(lists[0].id);
     }
-  }, [lists, selectedListId]);
+  }, [exitDeleteMode, lists, selectedListId]);
 
   React.useEffect(() => {
     if (!deleteMode) return;
@@ -299,24 +311,22 @@ export default function ProfileScreen() {
     wiggleLoop.current.start();
 
     return () => {
-      wiggleLoop.current?.stop();
+      resetWiggle();
     };
-  }, [deleteMode, wiggleAnim]);
+  }, [deleteMode, resetWiggle, wiggleAnim]);
 
   React.useEffect(() => {
     if (deleteMode) {
       return;
     }
 
-    wiggleLoop.current?.stop();
-    wiggleAnim.setValue(0);
-  }, [deleteMode, wiggleAnim]);
+    resetWiggle();
+  }, [deleteMode, resetWiggle]);
 
   useFocusEffect(
     React.useCallback(() => {
       return () => {
-        wiggleLoop.current?.stop();
-        wiggleAnim.setValue(0);
+        resetWiggle();
         setDeleteMode(false);
         setNewListModalVisible(false);
         setNewListName("");
@@ -324,18 +334,18 @@ export default function ProfileScreen() {
         setIsEditing(false);
         setPendingRemovals({});
       };
-    }, [wiggleAnim]),
+    }, [resetWiggle]),
   );
 
   const openNewListModal = React.useCallback(() => {
     setNewListName("");
     setNewListError(null);
-    setDeleteMode(false);
+    exitDeleteMode();
     setIsEditing(false);
     setPendingRemovals({});
     setNewListVisibility("public");
     setNewListModalVisible(true);
-  }, []);
+  }, [exitDeleteMode]);
 
   const closeNewListModal = React.useCallback(() => {
     setNewListModalVisible(false);
@@ -417,10 +427,13 @@ export default function ProfileScreen() {
       if (isEditing || deleteMode) return;
       setPendingRemovals({});
       setIsEditing(false);
-      setDeleteMode(false);
-      focusEntryRegion(entry);
+      exitDeleteMode();
+      setActivePinEntry(null);
+      setMapModalVisible(false);
+      requestMapFocus(entry);
+      router.push("/(tabs)/map");
     },
-    [deleteMode, focusEntryRegion, isEditing],
+    [deleteMode, exitDeleteMode, isEditing, requestMapFocus, router],
   );
 
 
@@ -444,6 +457,10 @@ export default function ProfileScreen() {
   const hasLists = grouped.length > 0;
   const hasPendingRemovals = React.useMemo(
     () => Object.keys(pendingRemovals).length > 0,
+    [pendingRemovals],
+  );
+  const pendingRemovalCount = React.useMemo(
+    () => Object.keys(pendingRemovals).length,
     [pendingRemovals],
   );
   const totalItems = pinsForMap.length;
@@ -526,10 +543,10 @@ export default function ProfileScreen() {
       setIsEditing(false);
       setPendingRemovals({});
     } else {
-      setDeleteMode(false);
+      exitDeleteMode();
       setIsEditing(true);
     }
-  }, [isEditing, totalItems]);
+  }, [exitDeleteMode, isEditing, totalItems]);
 
   const handleCancelEditing = React.useCallback(() => {
     setPendingRemovals({});
@@ -543,6 +560,25 @@ export default function ProfileScreen() {
     setPendingRemovals({});
     setIsEditing(false);
   }, [pendingRemovals, removeEntry]);
+
+  const promptDeleteList = React.useCallback(
+    (listId: string, listName: string) => {
+      Alert.alert("Delete list?", `Remove "${listName}" and all of its saved places?`, [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            removeList(listId);
+            setPendingRemovals({});
+            setIsEditing(false);
+            exitDeleteMode();
+          },
+        },
+      ]);
+    },
+    [exitDeleteMode, removeList],
+  );
 
   const loadFollowList = React.useCallback(
     async (mode: "followers" | "following") => {
@@ -823,21 +859,7 @@ export default function ProfileScreen() {
               : undefined;
 
             const promptRemoval = () => {
-              Alert.alert(
-                'Remove list?',
-                `Are you sure you want to remove "${item.name}"?`,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Remove',
-                    style: 'destructive',
-                    onPress: () => {
-                      removeList(item.id);
-                      setDeleteMode(false);
-                    },
-                  },
-                ],
-              );
+              promptDeleteList(item.id, item.name);
             };
 
                 return (
@@ -846,7 +868,7 @@ export default function ProfileScreen() {
                       style={[styles.galleryCard, isSelected && styles.galleryCardSelected]}
                       onPress={() => {
                         if (deleteMode) {
-                          setDeleteMode(false);
+                          exitDeleteMode();
                           return;
                         }
                         if (isEditing) {
@@ -895,7 +917,11 @@ export default function ProfileScreen() {
                   <View style={styles.sectionTitleBlock}>
                     <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
                     <Text style={styles.sectionMeta}>
-                      {totalItems} {totalItems === 1 ? "place saved" : "places saved"}
+                      {isEditing
+                        ? pendingRemovalCount
+                          ? `${pendingRemovalCount} selected for removal`
+                          : "Select places to remove from this list"
+                        : `${totalItems} ${totalItems === 1 ? "place saved" : "places saved"}`}
                     </Text>
                   </View>
                   {!!totalItems && (
@@ -903,11 +929,19 @@ export default function ProfileScreen() {
                       style={[styles.editButton, isEditing && styles.editButtonActive]}
                       hitSlop={10}
                       onPress={toggleEditing}
+                      accessibilityRole="button"
+                      accessibilityLabel={isEditing ? "Finish editing list" : "Edit list"}
                     >
-                      <FontAwesome name="pencil" size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
+                      <FontAwesome name={isEditing ? "close" : "pencil"} size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
                     </Pressable>
                   )}
                 </View>
+                {isEditing ? (
+                  <View style={styles.editModeBanner}>
+                    <FontAwesome name="hand-pointer-o" size={14} color="#475569" />
+                    <Text style={styles.editModeBannerText}>Tap places to select them, then remove them in one step.</Text>
+                  </View>
+                ) : null}
                 <View style={styles.mapPreviewWrapper}>
                   <MapView
                     ref={previewMapRef}
@@ -920,9 +954,12 @@ export default function ProfileScreen() {
                     key={`${entry.listId}-${entry.bucket}-${entry.savedAt}`}
                     coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                     title={entry.pin.label}
-                    pinColor={entry.bucket === 'wishlist' ? '#f59e0b' : '#22c55e'}
                     onPress={() => handleMarkerPress(entry)}
-                  />
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <SavedPlaceMarkerIcon bucket={entry.bucket} source="self" />
+                  </Marker>
                 ))}
               </MapView>
               {selectedGroup ? (
@@ -948,7 +985,7 @@ export default function ProfileScreen() {
                       return (
                         <SwipeStrikeItem
                           key={entryKey}
-                          label={`• ${entry.pin.label}`}
+                          label={entry.pin.label}
                           editing={isEditing}
                           marked={Boolean(pendingRemovals[entryKey])}
                           onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
@@ -969,7 +1006,7 @@ export default function ProfileScreen() {
                       return (
                         <SwipeStrikeItem
                           key={entryKey}
-                          label={`• ${entry.pin.label}`}
+                          label={entry.pin.label}
                           editing={isEditing}
                           marked={Boolean(pendingRemovals[entryKey])}
                           onMarkedChange={(marked) => markEntryForRemoval(entry, marked)}
@@ -984,20 +1021,32 @@ export default function ProfileScreen() {
 
             {isEditing && (
               <View style={styles.editActions}>
+                {selectedGroup ? (
+                  <Pressable
+                    onPress={() => promptDeleteList(selectedGroup.definition.id, selectedGroup.definition.name)}
+                    style={styles.editDeleteButton}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Delete ${selectedGroup.definition.name}`}
+                  >
+                    <Text style={styles.editDeleteText}>Delete list</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable onPress={handleCancelEditing} style={styles.editCancelButton} hitSlop={12}>
                   <Text style={styles.editCancelText}>Cancel</Text>
                 </Pressable>
-                {hasPendingRemovals && (
-                  <Pressable
-                    onPress={handleConfirmRemovals}
-                    style={styles.editDoneButton}
-                    hitSlop={12}
-                    accessibilityRole="button"
-                    accessibilityLabel="Confirm deletions"
-                  >
-                    <Text style={styles.editDoneText}>Done</Text>
-                  </Pressable>
-                )}
+                <Pressable
+                  onPress={handleConfirmRemovals}
+                  style={[styles.editDoneButton, !hasPendingRemovals && styles.editDoneButtonDisabled]}
+                  disabled={!hasPendingRemovals}
+                  hitSlop={12}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove selected items"
+                >
+                  <Text style={styles.editDoneText}>
+                    {pendingRemovalCount ? `Remove (${pendingRemovalCount})` : "Remove"}
+                  </Text>
+                </Pressable>
               </View>
             )}
               </View>
@@ -1059,17 +1108,26 @@ export default function ProfileScreen() {
                               key={`${item.listId}-pin-${entry.savedAt}`}
                               coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                               title={entry.pin.label}
-                              pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
-                            />
+                              anchor={{ x: 0.5, y: 0.5 }}
+                              tracksViewChanges={false}
+                            >
+                              <SavedPlaceMarkerIcon bucket={entry.bucket} source="liked" />
+                            </Marker>
                           ))}
                         </MapView>
                         <View style={styles.likedBucketSection}>
                           <Text style={styles.bucketTitle}>Wishlist</Text>
                           {item.wishlist.length ? (
                             item.wishlist.map((entry) => (
-                              <Text key={`liked-wish-${entry.savedAt}`} style={styles.bucketItem}>
-                                • {entry.pin.label}
-                              </Text>
+                              <Pressable
+                                key={`liked-wish-${entry.savedAt}`}
+                                style={styles.bucketItemButton}
+                                onPress={() => handleEntryPress(entry)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Open ${entry.pin.label} on the map`}
+                              >
+                                <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                              </Pressable>
                             ))
                           ) : (
                             <Text style={styles.emptyState}>No wishlist saves yet.</Text>
@@ -1079,9 +1137,15 @@ export default function ProfileScreen() {
                           <Text style={styles.bucketTitle}>Favourite</Text>
                           {item.favourite.length ? (
                             item.favourite.map((entry) => (
-                              <Text key={`liked-fav-${entry.savedAt}`} style={styles.bucketItem}>
-                                • {entry.pin.label}
-                              </Text>
+                              <Pressable
+                                key={`liked-fav-${entry.savedAt}`}
+                                style={styles.bucketItemButton}
+                                onPress={() => handleEntryPress(entry)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Open ${entry.pin.label} on the map`}
+                              >
+                                <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                              </Pressable>
                             ))
                           ) : (
                             <Text style={styles.emptyState}>No favourite saves yet.</Text>
@@ -1295,9 +1359,12 @@ export default function ProfileScreen() {
                     key={`${entry.listId}-${entry.bucket}-${entry.savedAt}`}
                     coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                     title={entry.pin.label}
-                    pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
                     onPress={() => handleMarkerPress(entry)}
-                  />
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                  >
+                    <SavedPlaceMarkerIcon bucket={entry.bucket} source="self" />
+                  </Marker>
                 ))}
                 </MapView>
               ) : (
@@ -1391,43 +1458,14 @@ type SwipeStrikeItemProps = {
   onPress?: () => void;
 };
 
-const STRIKE_THRESHOLD = 60;
-
 function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: SwipeStrikeItemProps) {
-  const panResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) =>
-          editing &&
-          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
-          Math.abs(gestureState.dx) > 6,
-        onPanResponderMove: () => {},
-        onPanResponderRelease: (_, gestureState) => {
-          if (!editing) return;
-          const offset = gestureState.dx;
-          if (offset >= STRIKE_THRESHOLD) {
-            onMarkedChange(true);
-          } else if (offset <= -STRIKE_THRESHOLD) {
-            onMarkedChange(false);
-          } else {
-            onMarkedChange(marked);
-          }
-        },
-        onPanResponderTerminate: (_, gestureState) => {
-          const offset = gestureState.dx;
-          if (offset >= STRIKE_THRESHOLD) {
-            onMarkedChange(true);
-          } else if (offset <= -STRIKE_THRESHOLD) {
-            onMarkedChange(false);
-          } else {
-            // unchanged
-          }
-        },
-      }),
-    [editing, marked, onMarkedChange],
-  );
-
-  const showPressable = Boolean(onPress);
+  const handlePress = React.useCallback(() => {
+    if (editing) {
+      onMarkedChange(!marked);
+      return;
+    }
+    onPress?.();
+  }, [editing, marked, onMarkedChange, onPress]);
 
   return (
     <Animated.View
@@ -1435,22 +1473,33 @@ function SwipeStrikeItem({ label, editing, marked, onMarkedChange, onPress }: Sw
         styles.bucketItemWrapper,
         editing && styles.bucketItemWrapperEditing,
       ]}
-      {...(editing ? panResponder.panHandlers : {})}
     >
       <Pressable
-        disabled={!showPressable || editing}
-        onPress={onPress}
-        style={styles.bucketItemPressable}
+        disabled={!editing && !onPress}
+        onPress={handlePress}
+        style={[styles.bucketItemPressable, editing && styles.bucketItemPressableEditing]}
+        accessibilityRole="button"
+        accessibilityState={editing ? { selected: marked } : undefined}
       >
         <View style={styles.bucketItemContent}>
+          {editing ? (
+            <View style={[styles.bucketSelectionToggle, marked && styles.bucketSelectionToggleActive]}>
+              {marked ? <FontAwesome name="check" size={12} color="#ffffff" /> : null}
+            </View>
+          ) : (
+            <View style={styles.bucketRowBullet}>
+              <FontAwesome name="map-marker" size={12} color="#94a3b8" />
+            </View>
+          )}
           <Text
             style={[
               styles.bucketItem,
-              marked && styles.bucketItemStruck,
+              marked && editing && styles.bucketItemSelected,
             ]}
           >
             {label}
           </Text>
+          {!editing ? <FontAwesome name="chevron-right" size={12} color="#94a3b8" /> : null}
         </View>
       </Pressable>
     </Animated.View>
@@ -2222,35 +2271,85 @@ const styles = StyleSheet.create({
   bucketItem: {
     fontSize: 14,
     color: '#475569',
+    flex: 1,
   },
-  bucketItemStruck: {
-    textDecorationLine: 'line-through',
-    textDecorationColor: '#cbd5f5',
+  bucketItemSelected: {
+    color: '#0f172a',
+    fontWeight: '600',
   },
   bucketItemWrapper: {
-    paddingVertical: 6,
+    paddingVertical: 3,
     position: 'relative',
   },
   bucketItemWrapperEditing: {
-    paddingVertical: 10,
+    paddingVertical: 2,
   },
   bucketItemPressable: {
-    borderRadius: 8,
+    borderRadius: 10,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  bucketItemPressableEditing: {
+    backgroundColor: '#fff5f5',
+    borderWidth: 1,
+    borderColor: '#fecaca',
   },
   bucketItemContent: {
     position: 'relative',
-    paddingHorizontal: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bucketSelectionToggle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bucketSelectionToggleActive: {
+    borderColor: '#ef4444',
+    backgroundColor: '#ef4444',
+  },
+  bucketRowBullet: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyState: {
     fontSize: 13,
     color: '#94a3b8',
     fontStyle: 'italic',
   },
+  editModeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  editModeBannerText: {
+    flex: 1,
+    color: '#475569',
+    fontSize: 13,
+  },
   editActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
     alignItems: 'center',
     marginTop: 12,
+    gap: 10,
   },
   editCancelButton: {
     paddingHorizontal: 12,
@@ -2272,6 +2371,19 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     letterSpacing: 0.4,
+  },
+  editDoneButtonDisabled: {
+    opacity: 0.45,
+  },
+  editDeleteButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: '#fee2e2',
+  },
+  editDeleteText: {
+    color: '#b91c1c',
+    fontWeight: '700',
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,

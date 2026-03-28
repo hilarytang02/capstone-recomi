@@ -159,7 +159,7 @@ export function usePlaceEngagement(
   pin: PlacePin | null,
   transition: PlaceEngagementTransition = null,
 ): UsePlaceEngagementResult {
-  const { relatedUserIds, relatedProfiles, loading: socialGraphLoading } = useSocialGraph()
+  const { followeeIds, relatedProfiles, loading: socialGraphLoading } = useSocialGraph()
   const [state, setState] = React.useState(emptyState)
   const [hasSnapshot, setHasSnapshot] = React.useState(false)
   const [needsLegacyFallback, setNeedsLegacyFallback] = React.useState(false)
@@ -229,14 +229,14 @@ export function usePlaceEngagement(
     }
 
     const loadLegacyRecentState = async () => {
-      if (!relatedUserIds.length) {
+      if (!followeeIds.length) {
         if (active) {
           setLegacyRecentState(emptyState)
         }
         return
       }
 
-      const candidateIds = relatedUserIds.slice(0, RECENT_PLACE_SAVERS_LIMIT)
+      const candidateIds = followeeIds.slice(0, RECENT_PLACE_SAVERS_LIMIT)
       const saveSnaps = await Promise.all(
         candidateIds.map((id) =>
           getDoc(doc(firestore, PLACE_STATS_COLLECTION, placeId, PLACE_USER_SAVES_SUBCOLLECTION, id))
@@ -279,7 +279,7 @@ export function usePlaceEngagement(
     return () => {
       active = false
     }
-  }, [needsLegacyFallback, placeId, relatedUserIds, socialGraphLoading, state.favouriteCount, state.wishlistCount])
+  }, [followeeIds, needsLegacyFallback, placeId, socialGraphLoading, state.favouriteCount, state.wishlistCount])
 
   const effectiveState = React.useMemo(
     () => applyPlaceEngagementTransition(legacyRecentState ?? state, transition),
@@ -289,26 +289,26 @@ export function usePlaceEngagement(
   const matchedProfiles = React.useMemo(() => {
     return buildMatchedProfiles({
       recentSaverIds: effectiveState.recentSaverIds,
-      relatedUserIds,
+      relatedUserIds: followeeIds,
       relatedProfiles,
     })
-  }, [effectiveState.recentSaverIds, relatedProfiles, relatedUserIds])
+  }, [effectiveState.recentSaverIds, followeeIds, relatedProfiles])
 
   const wishlistFriend = React.useMemo(() => {
     return pickMatchedProfile({
       saverIds: effectiveState.recentWishlistSaverIds,
-      relatedUserIds,
+      relatedUserIds: followeeIds,
       relatedProfiles,
     })
-  }, [effectiveState.recentWishlistSaverIds, relatedProfiles, relatedUserIds])
+  }, [effectiveState.recentWishlistSaverIds, followeeIds, relatedProfiles])
 
   const favouriteFriend = React.useMemo(() => {
     return pickMatchedProfile({
       saverIds: effectiveState.recentFavouriteSaverIds,
-      relatedUserIds,
+      relatedUserIds: followeeIds,
       relatedProfiles,
     })
-  }, [effectiveState.recentFavouriteSaverIds, relatedProfiles, relatedUserIds])
+  }, [effectiveState.recentFavouriteSaverIds, followeeIds, relatedProfiles])
 
   return {
     wishlistCount: effectiveState.wishlistCount,

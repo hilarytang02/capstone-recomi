@@ -20,6 +20,7 @@ type SocialGraphProfile = {
 }
 
 type SocialGraphContextValue = {
+  followeeIds: string[]
   relatedUserIds: string[]
   relatedProfiles: Map<string, SocialGraphProfile>
   loading: boolean
@@ -32,12 +33,14 @@ const SocialGraphContext = React.createContext<SocialGraphContextValue | undefin
 
 export function SocialGraphProvider({ children }: { children: React.ReactNode }) {
   const { user, initializing } = useAuth()
+  const [followeeIds, setFolloweeIds] = React.useState<string[]>([])
   const [relatedUserIds, setRelatedUserIds] = React.useState<string[]>([])
   const [relatedProfiles, setRelatedProfiles] = React.useState<Map<string, SocialGraphProfile>>(EMPTY_PROFILES)
   const [loading, setLoading] = React.useState(true)
 
   React.useEffect(() => {
     if (!user?.uid || initializing) {
+      setFolloweeIds([])
       setRelatedUserIds([])
       setRelatedProfiles(new Map())
       setLoading(false)
@@ -118,6 +121,7 @@ export function SocialGraphProvider({ children }: { children: React.ReactNode })
         return
       }
       const orderedIds = [...followees, ...followers.filter((id) => !followees.includes(id))]
+      setFolloweeIds(followees)
       setRelatedUserIds(orderedIds)
       void syncProfiles(orderedIds)
     }
@@ -167,11 +171,12 @@ export function SocialGraphProvider({ children }: { children: React.ReactNode })
 
   const value = React.useMemo(
     () => ({
+      followeeIds,
       relatedUserIds,
       relatedProfiles,
       loading,
     }),
-    [loading, relatedProfiles, relatedUserIds]
+    [followeeIds, loading, relatedProfiles, relatedUserIds]
   )
 
   return (

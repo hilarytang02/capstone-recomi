@@ -22,7 +22,7 @@ import type { Camera } from "react-native-maps";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useIsFocused } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, onSnapshot, serverTimestamp } from "firebase/firestore";
 import { searchNearbyPlace, searchNearbyPlaces, searchPlaceAutocomplete, searchPlaceByText, type PlaceAutocompleteItem } from "../../shared/api/places";
 import {
   useSavedLists,
@@ -35,6 +35,9 @@ import { usePlaceEngagement } from "../../shared/hooks/usePlaceEngagement";
 import { useAuth } from "../../shared/context/auth";
 import { firestore } from "../../shared/firebase/app";
 import { placeIdFromPin } from "../../shared/utils/placeStats";
+import { SavedPlaceMarkerIcon, type SavedPlaceMarkerSource } from "../../components/SavedPlaceMarkerIcon";
+import { canViewList, USERS_COLLECTION } from "../../shared/api/users";
+import { useSocialGraph } from "../../shared/context/socialGraph";
 
 const WORLD: Region = {
   latitude: 20,
@@ -106,9 +109,10 @@ type SavedMarker = {
   label: string;
   placeId?: string | null;
   bucket: "wishlist" | "favourite";
+  source: SavedPlaceMarkerSource;
 };
 
-type SavedFilterMode = "all" | "mine" | "liked" | "custom";
+type SavedFilterMode = "all" | "mine" | "friends" | "custom";
 
 const buildLabel = (place: any, fallback: string) => {
   if (!place) return fallback;
@@ -127,6 +131,9 @@ const buildLabel = (place: any, fallback: string) => {
 const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
   Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5;
 
+const makePlaceMarkerKey = (pin: { lat: number; lng: number; placeId?: string | null }) =>
+  pin.placeId || `${pin.lat.toFixed(6)}:${pin.lng.toFixed(6)}`;
+
 const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
   marker,
   onPress,
@@ -139,18 +146,6 @@ const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
     [marker.lat, marker.lng]
   );
 
-  if (Platform.OS === "ios") {
-    return (
-      <Marker
-        coordinate={coordinate}
-        onPress={onPress}
-        identifier={marker.id}
-        pinColor={marker.bucket === "favourite" ? "#ef4444" : "#f59e0b"}
-        tracksViewChanges={false}
-      />
-    );
-  }
-
   return (
     <Marker
       coordinate={coordinate}
@@ -159,20 +154,7 @@ const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
       anchor={{ x: 0.5, y: 0.5 }}
       tracksViewChanges={false}
     >
-      <View
-        style={[
-          styles.savedMarker,
-          marker.bucket === "favourite"
-            ? styles.savedMarkerFavourite
-            : styles.savedMarkerWishlist,
-        ]}
-      >
-        <FontAwesome
-          name="heart"
-          size={10}
-          color={marker.bucket === "favourite" ? "#ffffff" : "#ef4444"}
-        />
-      </View>
+      <SavedPlaceMarkerIcon bucket={marker.bucket} source={marker.source} />
     </Marker>
   );
 });
@@ -279,6 +261,8 @@ export default function MapScreen() {
   const deferredSavedFilterMode = React.useDeferredValue(savedFilterMode);
   const deferredSelectedMyListIds = React.useDeferredValue(selectedMyListIds);
   const deferredSelectedLikedListKeys = React.useDeferredValue(selectedLikedListKeys);
+  const { followeeIds } = useSocialGraph();
+  const [friendEntries, setFriendEntries] = React.useState<SavedEntry[]>([]);
   const {
     wishlistCount: engagementWishlistCount,
     favouriteCount: engagementFavouriteCount,
@@ -296,17 +280,61 @@ export default function MapScreen() {
     setSelectedLikedListKeys((prev) => prev.filter((key) => validKeys.has(key)));
   }, [likedLists]);
 
+  React.useEffect(() => {
+    if (!followeeIds.length) {
+      setFriendEntries([]);
+      return;
+    }
+
+    const entriesByUser = new Map<string, SavedEntry[]>();
+    const unsubscribers = followeeIds.map((uid) => {
+      const userRef = doc(firestore, USERS_COLLECTION, uid);
+      return onSnapshot(
+        userRef,
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            entriesByUser.set(uid, []);
+            setFriendEntries(Array.from(entriesByUser.values()).flat());
+            return;
+          }
+          const data = snapshot.data() as {
+            entries?: SavedEntry[];
+            lists?: Array<{ id: string; visibility?: "private" | "followers" | "public" }>;
+          };
+          const rawEntries = Array.isArray(data.entries) ? data.entries : [];
+          const embeddedLists = Array.isArray(data.lists) ? data.lists : [];
+          const visibleListIds = new Set(
+            embeddedLists
+              .filter((list) => canViewList(list.visibility, { isSelf: false, isFollower: true }))
+              .map((list) => list.id),
+          );
+          entriesByUser.set(
+            uid,
+            rawEntries.filter((entry) => visibleListIds.has(entry.listId)),
+          );
+          setFriendEntries(Array.from(entriesByUser.values()).flat());
+        },
+        (error) => {
+          console.warn("Failed to load followee saves for map", error);
+          entriesByUser.set(uid, []);
+          setFriendEntries(Array.from(entriesByUser.values()).flat());
+        },
+      );
+    });
+
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [followeeIds]);
+
   const filteredSavedEntries = React.useMemo(() => {
     switch (deferredSavedFilterMode) {
       case "all":
-        return [
-          ...entries,
-          ...likedLists.flatMap((list) => [...list.wishlist, ...list.favourite]),
-        ];
+        return [...entries, ...friendEntries];
       case "mine":
         return entries;
-      case "liked":
-        return likedLists.flatMap((list) => [...list.wishlist, ...list.favourite]);
+      case "friends":
+        return friendEntries;
       case "custom": {
         const myEntries = entries.filter((entry) => deferredSelectedMyListIds.includes(entry.listId));
         const likedEntries = likedLists.flatMap((list) => {
@@ -324,17 +352,28 @@ export default function MapScreen() {
     deferredSelectedLikedListKeys,
     deferredSelectedMyListIds,
     entries,
+    friendEntries,
     likedLists,
   ]);
 
   const savedMarkers = React.useMemo<SavedMarker[]>(() => {
     const grouped = new Map<string, SavedMarker>();
+    const myKeys = new Set(entries.map((entry) => makePlaceMarkerKey(entry.pin)));
+    const friendKeys = new Set(friendEntries.map((entry) => makePlaceMarkerKey(entry.pin)));
+    const likedKeys = new Set(
+      likedLists.flatMap((list) => [...list.wishlist, ...list.favourite]).map((entry) => makePlaceMarkerKey(entry.pin))
+    );
 
     filteredSavedEntries.forEach((entry) => {
-      const key =
-        entry.pin.placeId ||
-        `${entry.pin.lat.toFixed(6)}:${entry.pin.lng.toFixed(6)}`;
+      const key = makePlaceMarkerKey(entry.pin);
       const existing = grouped.get(key);
+      const source: SavedPlaceMarkerSource = myKeys.has(key)
+        ? "self"
+        : friendKeys.has(key)
+          ? "friend"
+          : likedKeys.has(key)
+            ? "liked"
+            : "self";
 
       if (!existing) {
         grouped.set(key, {
@@ -344,6 +383,7 @@ export default function MapScreen() {
           label: entry.pin.label,
           placeId: entry.pin.placeId ?? null,
           bucket: entry.bucket,
+          source,
         });
         return;
       }
@@ -351,10 +391,15 @@ export default function MapScreen() {
       if (existing.bucket !== "favourite" && entry.bucket === "favourite") {
         existing.bucket = "favourite";
       }
+      if (existing.source !== "self" && source === "self") {
+        existing.source = "self";
+      } else if (existing.source === "liked" && source === "friend") {
+        existing.source = "friend";
+      }
     });
 
     return Array.from(grouped.values());
-  }, [filteredSavedEntries]);
+  }, [entries, filteredSavedEntries, friendEntries, likedLists]);
 
   const visibleSavedMarkers = React.useMemo(() => {
     if (!pin) return savedMarkers;
@@ -1208,7 +1253,7 @@ export default function MapScreen() {
       >
         {visibleSavedMarkers.map((marker) => (
           <SavedPlaceMarker
-            key={`${marker.id}:${marker.bucket}`}
+            key={`${marker.id}:${marker.bucket}:${marker.source}`}
             marker={marker}
             onPress={() => handleSavedMarkerPress(marker)}
           />
@@ -1251,9 +1296,9 @@ export default function MapScreen() {
           style={[styles.savedFilterScroll, { top: insets.top + 72 }]}
         >
           {[
-            { key: "all" as const, label: "All saved" },
-            { key: "mine" as const, label: "My lists" },
-            { key: "liked" as const, label: "Liked lists" },
+            { key: "all" as const, label: "All saves" },
+            { key: "mine" as const, label: "My saves" },
+            { key: "friends" as const, label: "Friends' saves" },
             { key: "custom" as const, label: "Custom" },
           ].map((filter) => {
             const selected = savedFilterMode === filter.key;
@@ -1771,7 +1816,7 @@ export default function MapScreen() {
                 onPress={() => setLikedListsExpanded((prev) => !prev)}
                 style={styles.customFilterSectionToggle}
               >
-                <Text style={styles.customFilterSectionTitle}>Liked lists</Text>
+                <Text style={styles.customFilterSectionTitle}>My liked lists</Text>
                 <Text style={styles.customFilterSectionChevron}>{likedListsExpanded ? "Hide" : "Show"}</Text>
               </Pressable>
               <View style={styles.customFilterActions}>
@@ -1962,26 +2007,6 @@ function CompassButton({ heading, onPress }: { heading: number; onPress: () => v
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  savedMarker: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#ffffff",
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  savedMarkerWishlist: {
-    backgroundColor: "#ffffff",
-  },
-  savedMarkerFavourite: {
-    backgroundColor: "#ef4444",
-  },
   searchBarWrapper: {
     position: "absolute",
     left: 16,

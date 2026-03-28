@@ -13,7 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 
@@ -33,6 +33,7 @@ import { useSavedLists, type LikedListRef, type SavedEntry, type SavedListDefini
 import { useAuth } from "@/shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "@/components/PinDetailSheet";
+import { SavedPlaceMarkerIcon } from "@/components/SavedPlaceMarkerIcon";
 
 type UserProfileData = UserDocument & {
   id: string;
@@ -89,7 +90,8 @@ export default function UserProfileScreen() {
   const { uid } = useLocalSearchParams<{ uid?: string | string[] }>();
   const resolvedUid = Array.isArray(uid) ? uid[0] : uid;
   const { user } = useAuth();
-  const { likedLists: myLikedLists, likeList, unlikeList } = useSavedLists();
+  const router = useRouter();
+  const { likedLists: myLikedLists, likeList, unlikeList, requestMapFocus } = useSavedLists();
   const insets = useSafeAreaInsets();
 
   const [profile, setProfile] = React.useState<UserProfileData | null>(null);
@@ -345,9 +347,12 @@ export default function UserProfileScreen() {
 
   const handleEntryFocus = React.useCallback(
     (entry: SavedEntry) => {
-      focusEntryRegion(entry);
+      setActivePinEntry(null);
+      setMapModalVisible(false);
+      requestMapFocus(entry);
+      router.push("/(tabs)/map");
     },
-    [focusEntryRegion],
+    [requestMapFocus, router],
   );
 
   const showFeedback = React.useCallback(
@@ -920,9 +925,12 @@ export default function UserProfileScreen() {
                             key={makeEntryKey(entry)}
                             coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                             title={entry.pin.label}
-                            pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
                             onPress={() => handleMarkerPress(entry)}
-                          />
+                            anchor={{ x: 0.5, y: 0.5 }}
+                            tracksViewChanges={false}
+                          >
+                            <SavedPlaceMarkerIcon bucket={entry.bucket} source="friend" />
+                          </Marker>
                         ))}
                       </MapView>
                       <Pressable
@@ -947,9 +955,15 @@ export default function UserProfileScreen() {
                             onPress={() => handleEntryFocus(entry)}
                             style={styles.bucketItemButton}
                             accessibilityRole="button"
-                            accessibilityLabel={`Focus map on ${entry.pin.label}`}
+                            accessibilityLabel={`Open ${entry.pin.label} on the map`}
                           >
-                            <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                            <View style={styles.bucketItemRow}>
+                              <View style={styles.bucketItemIcon}>
+                                <FontAwesome name="map-marker" size={12} color="#94a3b8" />
+                              </View>
+                              <Text style={styles.bucketItem}>{entry.pin.label}</Text>
+                              <FontAwesome name="chevron-right" size={12} color="#94a3b8" />
+                            </View>
                           </Pressable>
                         ))
                       ) : (
@@ -966,9 +980,15 @@ export default function UserProfileScreen() {
                             onPress={() => handleEntryFocus(entry)}
                             style={styles.bucketItemButton}
                             accessibilityRole="button"
-                            accessibilityLabel={`Focus map on ${entry.pin.label}`}
+                            accessibilityLabel={`Open ${entry.pin.label} on the map`}
                           >
-                            <Text style={styles.bucketItem}>• {entry.pin.label}</Text>
+                            <View style={styles.bucketItemRow}>
+                              <View style={styles.bucketItemIcon}>
+                                <FontAwesome name="map-marker" size={12} color="#94a3b8" />
+                              </View>
+                              <Text style={styles.bucketItem}>{entry.pin.label}</Text>
+                              <FontAwesome name="chevron-right" size={12} color="#94a3b8" />
+                            </View>
                           </Pressable>
                         ))
                       ) : (
@@ -1026,17 +1046,32 @@ export default function UserProfileScreen() {
                               key={`${item.listId}-pin-${entry.savedAt}`}
                               coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                               title={entry.pin.label}
-                              pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
-                            />
+                              anchor={{ x: 0.5, y: 0.5 }}
+                              tracksViewChanges={false}
+                            >
+                              <SavedPlaceMarkerIcon bucket={entry.bucket} source="liked" />
+                            </Marker>
                           ))}
                         </MapView>
                         <View style={styles.likedBucketSection}>
                           <Text style={styles.bucketTitle}>Wishlist</Text>
                           {item.wishlist.length ? (
                             item.wishlist.map((entry) => (
-                              <Text key={`liked-wish-${entry.savedAt}`} style={styles.bucketItem}>
-                                • {entry.pin.label}
-                              </Text>
+                              <Pressable
+                                key={`liked-wish-${entry.savedAt}`}
+                                onPress={() => handleEntryFocus(entry)}
+                                style={styles.bucketItemButton}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Open ${entry.pin.label} on the map`}
+                              >
+                                <View style={styles.bucketItemRow}>
+                                  <View style={styles.bucketItemIcon}>
+                                    <FontAwesome name="map-marker" size={12} color="#94a3b8" />
+                                  </View>
+                                  <Text style={styles.bucketItem}>{entry.pin.label}</Text>
+                                  <FontAwesome name="chevron-right" size={12} color="#94a3b8" />
+                                </View>
+                              </Pressable>
                             ))
                           ) : (
                             <Text style={styles.emptyState}>No wishlist saves yet.</Text>
@@ -1046,9 +1081,21 @@ export default function UserProfileScreen() {
                           <Text style={styles.bucketTitle}>Favourite</Text>
                           {item.favourite.length ? (
                             item.favourite.map((entry) => (
-                              <Text key={`liked-fav-${entry.savedAt}`} style={styles.bucketItem}>
-                                • {entry.pin.label}
-                              </Text>
+                              <Pressable
+                                key={`liked-fav-${entry.savedAt}`}
+                                onPress={() => handleEntryFocus(entry)}
+                                style={styles.bucketItemButton}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Open ${entry.pin.label} on the map`}
+                              >
+                                <View style={styles.bucketItemRow}>
+                                  <View style={styles.bucketItemIcon}>
+                                    <FontAwesome name="map-marker" size={12} color="#94a3b8" />
+                                  </View>
+                                  <Text style={styles.bucketItem}>{entry.pin.label}</Text>
+                                  <FontAwesome name="chevron-right" size={12} color="#94a3b8" />
+                                </View>
+                              </Pressable>
                             ))
                           ) : (
                             <Text style={styles.emptyState}>No favourite saves yet.</Text>
@@ -1262,9 +1309,12 @@ export default function UserProfileScreen() {
                       key={makeEntryKey(entry)}
                       coordinate={{ latitude: entry.pin.lat, longitude: entry.pin.lng }}
                       title={entry.pin.label}
-                      pinColor={entry.bucket === "wishlist" ? "#f59e0b" : "#22c55e"}
                       onPress={() => handleMarkerPress(entry)}
-                    />
+                      anchor={{ x: 0.5, y: 0.5 }}
+                      tracksViewChanges={false}
+                    >
+                      <SavedPlaceMarkerIcon bucket={entry.bucket} source="friend" />
+                    </Marker>
                   ))}
                 </MapView>
               ) : (
@@ -1793,11 +1843,27 @@ const styles = StyleSheet.create({
     color: "#0f172a",
   },
   bucketItemButton: {
-    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  bucketItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+  },
+  bucketItemIcon: {
+    width: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
   bucketItem: {
     fontSize: 15,
     color: "#1e293b",
+    flex: 1,
   },
   likedSection: {
     marginTop: 24,
