@@ -999,23 +999,22 @@ export default function ProfileScreen() {
                         </View>
                       </View>
                     ) : (
-                      <Pressable
-                        disabled={!isEditing}
-                        onPress={handleRenameInputFocus}
-                        style={[styles.sectionTitleRow, isEditing && styles.sectionTitleRowEditable]}
-                        accessibilityRole={isEditing ? "button" : undefined}
-                        accessibilityLabel={isEditing ? `Rename ${selectedGroup.definition.name}` : undefined}
-                      >
+                      <View style={styles.sectionTitleRow}>
                         <Text style={styles.sectionTitle}>{selectedGroup.definition.name}</Text>
-                        {isEditing ? <FontAwesome name="pencil" size={13} color="#64748b" /> : null}
-                      </Pressable>
+                        {isEditing ? (
+                          <Pressable
+                            onPress={handleRenameInputFocus}
+                            hitSlop={8}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Rename ${selectedGroup.definition.name}`}
+                          >
+                            <FontAwesome name="pencil" size={13} color="#64748b" />
+                          </Pressable>
+                        ) : null}
+                      </View>
                     )}
                     <Text style={styles.sectionMeta}>
-                      {isEditing
-                        ? pendingRemovalCount
-                          ? `${pendingRemovalCount} selected for removal`
-                          : "Select places to remove from this list"
-                        : `${totalItems} ${totalItems === 1 ? "place saved" : "places saved"}`}
+                      {`${totalItems} ${totalItems === 1 ? "place saved" : "places saved"}`}
                     </Text>
                     {isEditing && renameListError ? (
                       <Text style={styles.sectionRenameError}>{renameListError}</Text>
@@ -1023,22 +1022,27 @@ export default function ProfileScreen() {
                   </View>
                   {selectedGroup ? (
                     <Pressable
-                      style={[styles.editButton, isEditing && styles.editButtonActive]}
+                      style={[
+                        styles.editButton,
+                        isEditing ? styles.editButtonDanger : styles.editButtonActive,
+                      ]}
                       hitSlop={10}
-                      onPress={toggleEditing}
+                      onPress={
+                        isEditing
+                          ? () => promptDeleteList(selectedGroup.definition.id, selectedGroup.definition.name)
+                          : toggleEditing
+                      }
                       accessibilityRole="button"
-                      accessibilityLabel={isEditing ? "Finish editing list" : "Edit list"}
+                      accessibilityLabel={isEditing ? `Delete ${selectedGroup.definition.name}` : "Edit list"}
                     >
-                      <FontAwesome name={isEditing ? "close" : "pencil"} size={16} color={isEditing ? '#ffffff' : '#0f172a'} />
+                      <FontAwesome
+                        name={isEditing ? "trash" : "pencil"}
+                        size={15}
+                        color={isEditing ? '#b91c1c' : '#ffffff'}
+                      />
                     </Pressable>
                   ) : null}
                 </View>
-                {isEditing ? (
-                  <View style={styles.editModeBanner}>
-                    <FontAwesome name="hand-pointer-o" size={14} color="#475569" />
-                    <Text style={styles.editModeBannerText}>Tap places to select them, then remove them in one step.</Text>
-                  </View>
-                ) : null}
                 <View style={styles.mapPreviewWrapper}>
                   <MapView
                     ref={previewMapRef}
@@ -1118,32 +1122,20 @@ export default function ProfileScreen() {
 
             {isEditing && (
               <View style={styles.editActions}>
-                {selectedGroup ? (
-                  <Pressable
-                    onPress={() => promptDeleteList(selectedGroup.definition.id, selectedGroup.definition.name)}
-                    style={styles.editDeleteButton}
-                    hitSlop={12}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Delete ${selectedGroup.definition.name}`}
-                  >
-                    <Text style={styles.editDeleteText}>Delete list</Text>
-                  </Pressable>
-                ) : null}
                 <Pressable onPress={handleCancelEditing} style={styles.editCancelButton} hitSlop={12}>
                   <Text style={styles.editCancelText}>Cancel</Text>
                 </Pressable>
-                <Pressable
-                  onPress={handleConfirmRemovals}
-                  style={[styles.editDoneButton, !hasPendingRemovals && styles.editDoneButtonDisabled]}
-                  disabled={!hasPendingRemovals}
-                  hitSlop={12}
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove selected items"
-                >
-                  <Text style={styles.editDoneText}>
-                    {pendingRemovalCount ? `Remove (${pendingRemovalCount})` : "Remove"}
-                  </Text>
-                </Pressable>
+                {hasPendingRemovals ? (
+                  <Pressable
+                    onPress={handleConfirmRemovals}
+                    style={styles.editDoneButton}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove selected items"
+                  >
+                    <Text style={styles.editDoneText}>{`Remove (${pendingRemovalCount})`}</Text>
+                  </Pressable>
+                ) : null}
               </View>
             )}
               </View>
@@ -2168,6 +2160,8 @@ const styles = StyleSheet.create({
   },
   sectionTitleBlock: {
     gap: 4,
+    flex: 1,
+    minWidth: 0,
   },
   sectionTitle: {
     fontSize: 20,
@@ -2179,33 +2173,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 8,
-    marginLeft: -6,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  sectionTitleRowEditable: {
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    minHeight: 28,
   },
   sectionTitleEditWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    minHeight: 32,
+    width: '100%',
   },
   sectionTitleInput: {
     minWidth: 0,
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#cbd5f5',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#6366f1',
+    paddingHorizontal: 0,
+    paddingVertical: 2,
     fontSize: 18,
     fontWeight: '700',
     color: '#0f172a',
-    backgroundColor: '#ffffff',
+    backgroundColor: 'transparent',
   },
   sectionTitleEditActions: {
     flexDirection: 'row',
@@ -2239,6 +2226,10 @@ const styles = StyleSheet.create({
   editButtonActive: {
     backgroundColor: '#6366f1',
     borderColor: '#6366f1',
+  },
+  editButtonDanger: {
+    backgroundColor: '#fff1f2',
+    borderColor: '#fecdd3',
   },
   detailMap: {
     height: 220,
@@ -2413,9 +2404,8 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
   },
   bucketItemPressableEditing: {
-    backgroundColor: '#fff5f5',
-    borderWidth: 1,
-    borderColor: '#fecaca',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
   },
   bucketItemContent: {
     position: 'relative',
@@ -2449,22 +2439,6 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontStyle: 'italic',
   },
-  editModeBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  editModeBannerText: {
-    flex: 1,
-    color: '#475569',
-    fontSize: 13,
-  },
   editActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -2493,19 +2467,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     letterSpacing: 0.4,
-  },
-  editDoneButtonDisabled: {
-    opacity: 0.45,
-  },
-  editDeleteButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-    backgroundColor: '#fee2e2',
-  },
-  editDeleteText: {
-    color: '#b91c1c',
-    fontWeight: '700',
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
