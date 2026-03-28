@@ -2,7 +2,6 @@ import React from "react";
 import {
   Dimensions,
   FlatList,
-  Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -38,6 +37,7 @@ import { placeIdFromPin } from "../../shared/utils/placeStats";
 import { SavedPlaceMarkerIcon, type SavedPlaceMarkerSource } from "../../components/SavedPlaceMarkerIcon";
 import { canViewList, USERS_COLLECTION } from "../../shared/api/users";
 import { useSocialGraph } from "../../shared/context/socialGraph";
+import RemoteAvatar from "../../components/RemoteAvatar";
 
 const WORLD: Region = {
   latitude: 20,
@@ -1476,15 +1476,14 @@ export default function MapScreen() {
                         style={styles.socialProfile}
                         onPress={() => router.push(`/user/${profile.id}`)}
                       >
-                        {profile.photoURL ? (
-                          <Image source={{ uri: profile.photoURL }} style={styles.socialAvatar} />
-                        ) : (
-                          <View style={styles.socialAvatarFallback}>
-                            <Text style={styles.socialAvatarText}>
-                              {(profile.displayName ?? profile.username ?? "?").charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
+                        <RemoteAvatar
+                          uri={profile.photoURL}
+                          label={profile.displayName ?? profile.username ?? "?"}
+                          size={36}
+                          backgroundColor="#e2e8f0"
+                          textColor="#475569"
+                          fontSize={14}
+                        />
                         <View style={styles.socialInfo}>
                           <Text style={styles.socialName} numberOfLines={1}>
                             {profile.displayName ?? "Unknown"}
@@ -2431,25 +2430,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 12,
     backgroundColor: "#f8fafc",
-  },
-  socialAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#e2e8f0",
-  },
-  socialAvatarFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#e2e8f0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  socialAvatarText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
   },
   socialInfo: {
     flex: 1,

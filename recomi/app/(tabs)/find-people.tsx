@@ -2,7 +2,6 @@ import React from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -18,6 +17,7 @@ import {
   type ListUsersResult,
   type UserProfile,
 } from "@/shared/api/users";
+import RemoteAvatar from "@/components/RemoteAvatar";
 import type { SavedEntry } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
 import { SAFE_AREA_PADDING } from "@/constants/layout";
@@ -140,15 +140,14 @@ export default function FindPeopleScreen() {
         onPress={() => router.push(`/user/${item.id}`)}
       >
         <View style={styles.avatarWrapper}>
-          {item.photoURL ? (
-            <Image source={{ uri: item.photoURL }} style={styles.avatar} />
-          ) : (
-            <View style={styles.fallbackAvatar}>
-              <Text style={styles.fallbackAvatarText}>
-                {(item.displayName ?? item.username ?? item.email ?? "?").slice(0, 1).toUpperCase()}
-              </Text>
-            </View>
-          )}
+          <RemoteAvatar
+            uri={item.photoURL}
+            label={item.displayName ?? item.username ?? item.email ?? "?"}
+            size={46}
+            backgroundColor="#e2e8f0"
+            textColor="#475569"
+            fontSize={18}
+          />
         </View>
         <View style={styles.cardContent}>
           <Text style={styles.cardTitle}>{item.displayName ?? item.username ?? "Unknown user"}</Text>
@@ -274,24 +273,6 @@ const styles = StyleSheet.create({
   },
   avatarWrapper: {
     marginRight: 12,
-  },
-  avatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-  },
-  fallbackAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: "#e2e8f0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fallbackAvatarText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#475569",
   },
   cardContent: {
     flex: 1,

@@ -1,10 +1,11 @@
 import React from "react";
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { firestore } from "@/shared/firebase/app";
 import { useAuth } from "@/shared/context/auth";
 import { USERS_COLLECTION } from "@/shared/api/users";
+import RemoteAvatar from "@/components/RemoteAvatar";
 
 type InviteItem = {
   id: string;
@@ -220,13 +221,14 @@ export default function NotificationsScreen() {
           return (
             <Pressable style={styles.card}>
               <View style={styles.avatarWrap}>
-                {profile?.photoURL ? (
-                  <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
-                ) : (
-                  <View style={styles.avatarFallback}>
-                    <Text style={styles.avatarText}>{getInitials(label)}</Text>
-                  </View>
-                )}
+                <RemoteAvatar
+                  uri={profile?.photoURL}
+                  label={label}
+                  size={36}
+                  backgroundColor="#cbd5f5"
+                  textColor="#1e293b"
+                  fontSize={12}
+                />
               </View>
               <View style={styles.textBlock}>
                 <Text style={styles.cardTitle}>{item.title}</Text>
@@ -329,24 +331,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  avatarFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#cbd5f5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#1e293b",
   },
   textBlock: {
     flex: 1,

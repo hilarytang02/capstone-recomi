@@ -31,6 +31,7 @@ import { useAuth } from "../../shared/context/auth";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "../../components/PinDetailSheet";
 import { SavedPlaceMarkerIcon } from "../../components/SavedPlaceMarkerIcon";
+import RemoteAvatar from "../../components/RemoteAvatar";
 import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { firestore } from "../../shared/firebase/app";
 import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
@@ -1225,13 +1226,14 @@ export default function ProfileScreen() {
                   const sub = item.username && item.displayName ? `@${item.username}` : null;
                   return (
                     <View style={styles.followRow}>
-                      {item.photoURL ? (
-                        <Image source={{ uri: item.photoURL }} style={styles.followAvatar} />
-                      ) : (
-                        <View style={styles.followAvatarFallback}>
-                          <Text style={styles.followAvatarText}>{label.slice(0, 1).toUpperCase()}</Text>
-                        </View>
-                      )}
+                      <RemoteAvatar
+                        uri={item.photoURL}
+                        label={label}
+                        size={36}
+                        backgroundColor="#f1f5f9"
+                        textColor="#64748b"
+                        fontSize={14}
+                      />
                       <View style={styles.followText}>
                         <Text style={styles.followName} numberOfLines={1}>
                           {label}
@@ -1943,24 +1945,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 6,
-  },
-  followAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-  followAvatarFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  followAvatarText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#64748b',
   },
   followText: {
     flex: 1,
