@@ -110,6 +110,7 @@ type SavedMarker = {
   placeId?: string | null;
   bucket: "wishlist" | "favourite";
   source: SavedPlaceMarkerSource;
+  pin: SavedEntry["pin"];
 };
 
 type SavedFilterMode = "all" | "mine" | "friends" | "custom";
@@ -131,8 +132,8 @@ const buildLabel = (place: any, fallback: string) => {
 const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
   Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5;
 
-const makePlaceMarkerKey = (pin: { lat: number; lng: number; placeId?: string | null }) =>
-  pin.placeId || `${pin.lat.toFixed(6)}:${pin.lng.toFixed(6)}`;
+const makePlaceMarkerKey = (pin: { lat: number; lng: number; label?: string | null; placeId?: string | null }) =>
+  pin.placeId || `${pin.lat.toFixed(7)}:${pin.lng.toFixed(7)}:${(pin.label ?? "").trim().toLowerCase()}`;
 
 const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
   marker,
@@ -384,6 +385,7 @@ export default function MapScreen() {
           placeId: entry.pin.placeId ?? null,
           bucket: entry.bucket,
           source,
+          pin: entry.pin,
         });
         return;
       }
@@ -395,6 +397,10 @@ export default function MapScreen() {
         existing.source = "self";
       } else if (existing.source === "liked" && source === "friend") {
         existing.source = "friend";
+      }
+      if (!existing.placeId && entry.pin.placeId) {
+        existing.placeId = entry.pin.placeId;
+        existing.pin = entry.pin;
       }
     });
 
@@ -612,7 +618,12 @@ export default function MapScreen() {
     setBulkMovePrompt(null);
     setQuery("");
     setSheetState("half");
-    setPin({ lat: entryPin.lat, lng: entryPin.lng, label: entryPin.label });
+    setPin({
+      lat: entryPin.lat,
+      lng: entryPin.lng,
+      label: entryPin.label,
+      placeId: entryPin.placeId ?? null,
+    });
     focusOn(entryPin.lat, entryPin.lng, { targetSheet: "half", animateMs: 600 });
     clearMapFocus();
   }, [clearMapFocus, focusOn, isFocused, mapFocusEntry]);
@@ -814,13 +825,13 @@ export default function MapScreen() {
       setListModalVisible(false);
       setBulkMovePrompt(null);
       setPin({
-        lat: marker.lat,
-        lng: marker.lng,
-        label: marker.label,
-        placeId: marker.placeId ?? null,
+        lat: marker.pin.lat,
+        lng: marker.pin.lng,
+        label: marker.pin.label,
+        placeId: marker.pin.placeId ?? null,
       });
       setSheetState("half");
-      focusOn(marker.lat, marker.lng, { targetSheet: "half", animateMs: 500 });
+      focusOn(marker.pin.lat, marker.pin.lng, { targetSheet: "half", animateMs: 500 });
     },
     [dismissKeyboard, focusOn]
   );
