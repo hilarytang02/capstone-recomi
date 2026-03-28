@@ -18,7 +18,7 @@ export function SavedPlaceMarkerIcon({
     filledBackground ? styles.outerFilled : styles.outerPlain,
   ];
   const heartColor = filledBackground ? "#ffffff" : "#dc2626";
-  const sparkleColor = filledBackground ? "#fde68a" : "#f59e0b";
+  const sparkleColor = filledBackground ? "#fde68a" : "#facc15";
 
   return (
     <View style={outerStyles}>
@@ -54,9 +54,12 @@ const styles = StyleSheet.create({
   },
   sparkle: {
     position: "absolute",
-    top: -4,
-    right: -4,
+    top: -3,
+    right: -1,
     fontSize: 8,
     fontWeight: "700",
+    textShadowColor: "rgba(255,255,255,0.95)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 2,
   },
 });
