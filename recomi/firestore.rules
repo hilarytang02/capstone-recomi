@@ -28,7 +28,7 @@ service cloud.firestore {
         return "visibility" in resource.data && listVisibility() == "followers";
       }
 
-      allow read: if isSignedIn() || (!isSignedIn() && request.resource == null);
+      allow read: if isSignedIn();
       allow write: if isOwner();
 
       match /lists/{listId} {
@@ -54,12 +54,39 @@ service cloud.firestore {
     }
 
     match /placeStats/{placeId} {
+      function validPlaceStatsWrite() {
+        return request.resource.data.keys().hasOnly([
+          "wishlistCount",
+          "favouriteCount",
+          "recentSaverIds",
+          "recentWishlistSaverIds",
+          "recentFavouriteSaverIds",
+          "lat",
+          "lng",
+          "label",
+          "placeId",
+          "updatedAt"
+        ])
+        && request.resource.data.wishlistCount is int
+        && request.resource.data.wishlistCount >= 0
+        && request.resource.data.favouriteCount is int
+        && request.resource.data.favouriteCount >= 0
+        && request.resource.data.lat is number
+        && request.resource.data.lng is number
+        && (!("label" in request.resource.data) || request.resource.data.label == null || request.resource.data.label is string)
+        && (!("placeId" in request.resource.data) || request.resource.data.placeId == null || request.resource.data.placeId is string);
+      }
+
       allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow write: if request.auth != null && validPlaceStatsWrite();
 
       match /userSaves/{uid} {
         allow read: if request.auth != null;
-        allow create, update, delete: if request.auth != null && request.auth.uid == uid;
+        allow create, update: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.data.userId == request.auth.uid
+          && (request.resource.data.bucket == "wishlist" || request.resource.data.bucket == "favourite");
+        allow delete: if request.auth != null && request.auth.uid == uid;
       }
     }
 

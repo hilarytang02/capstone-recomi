@@ -288,12 +288,29 @@ export default function MapScreen() {
     }
 
     const entriesByUser = new Map<string, SavedEntry[]>();
+    const rawEntriesByUser = new Map<string, SavedEntry[]>();
+    const fallbackVisibleListIdsByUser = new Map<string, Set<string>>();
+    const visibleListIdsByUser = new Map<string, Set<string> | null>();
+    const hasListsSnapshotByUser = new Set<string>();
+    const rebuildEntriesForUser = (uid: string) => {
+      const rawEntries = rawEntriesByUser.get(uid) ?? [];
+      const visibleListIds = visibleListIdsByUser.get(uid);
+      const nextEntries =
+        visibleListIds == null
+          ? rawEntries
+          : rawEntries.filter((entry) => visibleListIds.has(entry.listId));
+      entriesByUser.set(uid, nextEntries);
+      setFriendEntries(Array.from(entriesByUser.values()).flat());
+    };
     const unsubscribers = followeeIds.map((uid) => {
       const userRef = doc(firestore, USERS_COLLECTION, uid);
-      return onSnapshot(
+      const listsRef = collection(firestore, USERS_COLLECTION, uid, "lists");
+      const unsubUser = onSnapshot(
         userRef,
         (snapshot) => {
           if (!snapshot.exists()) {
+            rawEntriesByUser.set(uid, []);
+            visibleListIdsByUser.set(uid, null);
             entriesByUser.set(uid, []);
             setFriendEntries(Array.from(entriesByUser.values()).flat());
             return;
@@ -302,25 +319,58 @@ export default function MapScreen() {
             entries?: SavedEntry[];
             lists?: Array<{ id: string; visibility?: "private" | "followers" | "public" }>;
           };
-          const rawEntries = Array.isArray(data.entries) ? data.entries : [];
+          rawEntriesByUser.set(uid, Array.isArray(data.entries) ? data.entries : []);
           const embeddedLists = Array.isArray(data.lists) ? data.lists : [];
-          const visibleListIds = new Set(
+          const fallbackVisibleListIds = new Set(
             embeddedLists
               .filter((list) => canViewList(list.visibility, { isSelf: false, isFollower: true }))
               .map((list) => list.id),
           );
-          entriesByUser.set(
-            uid,
-            rawEntries.filter((entry) => visibleListIds.has(entry.listId)),
-          );
-          setFriendEntries(Array.from(entriesByUser.values()).flat());
+          fallbackVisibleListIdsByUser.set(uid, fallbackVisibleListIds);
+          if (!hasListsSnapshotByUser.has(uid)) {
+            visibleListIdsByUser.set(uid, fallbackVisibleListIds);
+          }
+          rebuildEntriesForUser(uid);
         },
         (error) => {
           console.warn("Failed to load followee saves for map", error);
+          rawEntriesByUser.set(uid, []);
           entriesByUser.set(uid, []);
           setFriendEntries(Array.from(entriesByUser.values()).flat());
         },
       );
+
+      const unsubLists = onSnapshot(
+        listsRef,
+        (snapshot) => {
+          hasListsSnapshotByUser.add(uid);
+          if (snapshot.empty) {
+            visibleListIdsByUser.set(uid, fallbackVisibleListIdsByUser.get(uid) ?? new Set());
+            rebuildEntriesForUser(uid);
+            return;
+          }
+          visibleListIdsByUser.set(
+            uid,
+            new Set(
+              snapshot.docs
+                .map((docSnap) => ({ id: docSnap.id, ...(docSnap.data() as { visibility?: "private" | "followers" | "public" }) }))
+                .filter((list) => canViewList(list.visibility, { isSelf: false, isFollower: true }))
+                .map((list) => list.id),
+            ),
+          );
+          rebuildEntriesForUser(uid);
+        },
+        (error) => {
+          console.warn("Failed to load followee list visibility for map", error);
+          entriesByUser.set(uid, []);
+          setFriendEntries(Array.from(entriesByUser.values()).flat());
+        },
+      );
+
+      return () => {
+        unsubUser();
+        unsubLists();
+      };
     });
 
     return () => {

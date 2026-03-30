@@ -115,6 +115,7 @@ export default function UserProfileScreen() {
   const [listPickerOpen, setListPickerOpen] = React.useState(false);
   const [listSearch, setListSearch] = React.useState("");
   const [likedByCount, setLikedByCount] = React.useState<number | null>(null);
+  const [subcollectionLists, setSubcollectionLists] = React.useState<SavedListDefinition[] | null>(null);
   const previewMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const modalMapRef = React.useRef<React.ComponentRef<typeof MapView> | null>(null);
   const feedbackAnim = React.useRef(new Animated.Value(0)).current;
@@ -183,13 +184,55 @@ export default function UserProfileScreen() {
     };
   }, [resolvedUid]);
 
+  React.useEffect(() => {
+    if (!resolvedUid) {
+      setSubcollectionLists(null);
+      return;
+    }
+
+    const listsRef = collection(firestore, USERS_COLLECTION, resolvedUid, "lists");
+    const unsubscribe = onSnapshot(
+      listsRef,
+      (snapshot) => {
+        const nextLists = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as Omit<SavedListDefinition, "id">;
+          return {
+            id: docSnap.id,
+            name: data.name ?? "Untitled",
+            description: data.description,
+            coverImage: data.coverImage,
+            savesCount: typeof data.savesCount === "number" ? data.savesCount : 0,
+            visibility: data.visibility ?? "public",
+          } as SavedListDefinition;
+        });
+        setSubcollectionLists(nextLists);
+      },
+      (err) => {
+        console.warn("Failed to load user lists subcollection", err);
+        setSubcollectionLists(null);
+      },
+    );
+
+    return unsubscribe;
+  }, [resolvedUid]);
+
   const isSelf = user?.uid === resolvedUid;
   const canFollow = Boolean(user && resolvedUid && !isSelf);
 
-  const lists = React.useMemo(() => {
+  const legacyLists = React.useMemo(() => {
     if (!profile?.lists || !Array.isArray(profile.lists)) return [] as SavedListDefinition[];
     return profile.lists as SavedListDefinition[];
   }, [profile?.lists]);
+
+  const lists = React.useMemo(() => {
+    if (subcollectionLists && subcollectionLists.length > 0) {
+      return subcollectionLists;
+    }
+    if (legacyLists.length > 0) {
+      return legacyLists;
+    }
+    return subcollectionLists ?? [];
+  }, [legacyLists, subcollectionLists]);
 
   const entries = React.useMemo(() => {
     if (!profile?.entries || !Array.isArray(profile.entries)) return [] as SavedEntry[];
