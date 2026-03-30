@@ -138,9 +138,11 @@ const makePlaceMarkerKey = (pin: { lat: number; lng: number; label?: string | nu
 const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
   marker,
   onPress,
+  tracksViewChanges,
 }: {
   marker: SavedMarker;
   onPress: () => void;
+  tracksViewChanges: boolean;
 }) {
   const coordinate = React.useMemo(
     () => ({ latitude: marker.lat, longitude: marker.lng }),
@@ -153,7 +155,7 @@ const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
       onPress={onPress}
       identifier={marker.id}
       anchor={{ x: 0.5, y: 0.5 }}
-      tracksViewChanges={false}
+      tracksViewChanges={tracksViewChanges}
     >
       <SavedPlaceMarkerIcon bucket={marker.bucket} source={marker.source} />
     </Marker>
@@ -259,11 +261,12 @@ export default function MapScreen() {
   const [likedListsExpanded, setLikedListsExpanded] = React.useState(true);
   const [selectedMyListIds, setSelectedMyListIds] = React.useState<string[]>([]);
   const [selectedLikedListKeys, setSelectedLikedListKeys] = React.useState<string[]>([]);
+  const [savedMarkerTracksViewChanges, setSavedMarkerTracksViewChanges] = React.useState(true);
   const deferredSavedFilterMode = React.useDeferredValue(savedFilterMode);
   const deferredSelectedMyListIds = React.useDeferredValue(selectedMyListIds);
   const deferredSelectedLikedListKeys = React.useDeferredValue(selectedLikedListKeys);
   const { followeeIds } = useSocialGraph();
-  const [friendEntries, setFriendEntries] = React.useState<SavedEntry[]>([]);
+  const [friendEntriesByUser, setFriendEntriesByUser] = React.useState<Record<string, SavedEntry[]>>({});
   const {
     wishlistCount: engagementWishlistCount,
     favouriteCount: engagementFavouriteCount,
@@ -282,8 +285,22 @@ export default function MapScreen() {
   }, [likedLists]);
 
   React.useEffect(() => {
+    setFriendEntriesByUser((prev) => {
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([uid]) => followeeIds.includes(uid)),
+      );
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [followeeIds]);
+
+  const friendEntries = React.useMemo(
+    () => Object.values(friendEntriesByUser).flat(),
+    [friendEntriesByUser],
+  );
+
+  React.useEffect(() => {
     if (!followeeIds.length) {
-      setFriendEntries([]);
+      setFriendEntriesByUser({});
       return;
     }
 
@@ -292,6 +309,39 @@ export default function MapScreen() {
     const fallbackVisibleListIdsByUser = new Map<string, Set<string>>();
     const visibleListIdsByUser = new Map<string, Set<string> | null>();
     const hasListsSnapshotByUser = new Set<string>();
+    const userDocResolved = new Set<string>();
+    const listDocResolved = new Set<string>();
+    let publishTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushStableEntries = () => {
+      publishTimer = null;
+      const nextEntriesByUser = Object.fromEntries(
+        followeeIds.map((uid) => [uid, entriesByUser.get(uid) ?? []]),
+      );
+      setFriendEntriesByUser((prev) => {
+        const prevKeys = Object.keys(prev);
+        const nextKeys = Object.keys(nextEntriesByUser);
+        if (
+          prevKeys.length === nextKeys.length &&
+          nextKeys.every((key) => prev[key] === nextEntriesByUser[key])
+        ) {
+          return prev;
+        }
+        return nextEntriesByUser;
+      });
+    };
+    const syncStableEntries = () => {
+      const allResolved = followeeIds.every(
+        (uid) => userDocResolved.has(uid) && listDocResolved.has(uid),
+      );
+      if (!allResolved) {
+        return;
+      }
+      if (publishTimer) {
+        clearTimeout(publishTimer);
+      }
+      // Batch rapid followee snapshot churn into one stable publish.
+      publishTimer = setTimeout(flushStableEntries, 120);
+    };
     const rebuildEntriesForUser = (uid: string) => {
       const rawEntries = rawEntriesByUser.get(uid) ?? [];
       const visibleListIds = visibleListIdsByUser.get(uid);
@@ -300,7 +350,7 @@ export default function MapScreen() {
           ? rawEntries
           : rawEntries.filter((entry) => visibleListIds.has(entry.listId));
       entriesByUser.set(uid, nextEntries);
-      setFriendEntries(Array.from(entriesByUser.values()).flat());
+      syncStableEntries();
     };
     const unsubscribers = followeeIds.map((uid) => {
       const userRef = doc(firestore, USERS_COLLECTION, uid);
@@ -308,11 +358,12 @@ export default function MapScreen() {
       const unsubUser = onSnapshot(
         userRef,
         (snapshot) => {
+          userDocResolved.add(uid);
           if (!snapshot.exists()) {
             rawEntriesByUser.set(uid, []);
             visibleListIdsByUser.set(uid, null);
             entriesByUser.set(uid, []);
-            setFriendEntries(Array.from(entriesByUser.values()).flat());
+            syncStableEntries();
             return;
           }
           const data = snapshot.data() as {
@@ -334,15 +385,17 @@ export default function MapScreen() {
         },
         (error) => {
           console.warn("Failed to load followee saves for map", error);
+          userDocResolved.add(uid);
           rawEntriesByUser.set(uid, []);
           entriesByUser.set(uid, []);
-          setFriendEntries(Array.from(entriesByUser.values()).flat());
+          syncStableEntries();
         },
       );
 
       const unsubLists = onSnapshot(
         listsRef,
         (snapshot) => {
+          listDocResolved.add(uid);
           hasListsSnapshotByUser.add(uid);
           if (snapshot.empty) {
             visibleListIdsByUser.set(uid, fallbackVisibleListIdsByUser.get(uid) ?? new Set());
@@ -362,8 +415,9 @@ export default function MapScreen() {
         },
         (error) => {
           console.warn("Failed to load followee list visibility for map", error);
-          entriesByUser.set(uid, []);
-          setFriendEntries(Array.from(entriesByUser.values()).flat());
+          listDocResolved.add(uid);
+          visibleListIdsByUser.set(uid, fallbackVisibleListIdsByUser.get(uid) ?? new Set());
+          rebuildEntriesForUser(uid);
         },
       );
 
@@ -374,6 +428,9 @@ export default function MapScreen() {
     });
 
     return () => {
+      if (publishTimer) {
+        clearTimeout(publishTimer);
+      }
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [followeeIds]);
@@ -464,6 +521,14 @@ export default function MapScreen() {
         !pinMatches(marker, pin)
     );
   }, [pin, pinMatches, savedMarkers]);
+
+  React.useEffect(() => {
+    setSavedMarkerTracksViewChanges(true);
+    const timer = setTimeout(() => {
+      setSavedMarkerTracksViewChanges(false);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [visibleSavedMarkers]);
 
   const getAddressPart = (components: any[] | undefined, type: string) =>
     components?.find((part) => Array.isArray(part?.types) && part.types.includes(type))?.longText ??
@@ -1322,6 +1387,7 @@ export default function MapScreen() {
             key={`${marker.id}:${marker.bucket}:${marker.source}`}
             marker={marker}
             onPress={() => handleSavedMarkerPress(marker)}
+            tracksViewChanges={savedMarkerTracksViewChanges}
           />
         ))}
         {pin && <Marker coordinate={{ latitude: pin.lat, longitude: pin.lng }} />}
