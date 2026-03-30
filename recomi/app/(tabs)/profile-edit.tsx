@@ -20,6 +20,7 @@ import { useAuth } from "@/shared/context/auth";
 import { firestore } from "@/shared/firebase/app";
 import {
   USERS_COLLECTION,
+  deleteOwnAccount,
   isUsernameAvailable,
   resolveProfilePhotoURL,
   updateProfileDetails,
@@ -29,12 +30,13 @@ import {
 const BIO_LIMIT = 160;
 
 export default function EditProfileScreen() {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [deletingAccount, setDeletingAccount] = React.useState(false);
   const [displayName, setDisplayName] = React.useState("");
   const [username, setUsername] = React.useState("");
   const [bio, setBio] = React.useState("");
@@ -209,6 +211,39 @@ export default function EditProfileScreen() {
     router,
   ]);
 
+  const handleDeleteAccount = React.useCallback(() => {
+    if (!user?.uid || deletingAccount) {
+      return;
+    }
+
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your account and removes your profile, lists, follows, and saved places. This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete account",
+          style: "destructive",
+          onPress: () => {
+            setDeletingAccount(true);
+            void (async () => {
+              try {
+                await deleteOwnAccount();
+                await signOut().catch(() => {});
+                router.replace("/welcome");
+              } catch (err) {
+                console.error("Failed to delete account", err);
+                Alert.alert("Unable to delete account", "Please try again in a moment.");
+              } finally {
+                setDeletingAccount(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [deletingAccount, router, signOut, user?.uid]);
+
   if (!user) {
     return null;
   }
@@ -300,6 +335,24 @@ export default function EditProfileScreen() {
 
         <Pressable style={[styles.primaryButton, saving && styles.primaryButtonDisabled]} onPress={handleSave} disabled={saving}>
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryLabel}>Save changes</Text>}
+        </Pressable>
+      </View>
+
+      <View style={styles.dangerCard}>
+        <Text style={styles.dangerTitle}>Delete account</Text>
+        <Text style={styles.dangerBody}>
+          Permanently remove your account and associated profile data from Recomi.
+        </Text>
+        <Pressable
+          style={[styles.dangerButton, deletingAccount && styles.primaryButtonDisabled]}
+          onPress={handleDeleteAccount}
+          disabled={deletingAccount}
+        >
+          {deletingAccount ? (
+            <ActivityIndicator color="#dc2626" />
+          ) : (
+            <Text style={styles.dangerLabel}>Delete account</Text>
+          )}
         </Pressable>
       </View>
     </ScrollView>
@@ -434,5 +487,37 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  dangerCard: {
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    padding: 20,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+  dangerTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#991b1b",
+  },
+  dangerBody: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#7f1d1d",
+  },
+  dangerButton: {
+    marginTop: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+    backgroundColor: "#fef2f2",
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  dangerLabel: {
+    color: "#dc2626",
+    fontSize: 15,
+    fontWeight: "700",
   },
 });

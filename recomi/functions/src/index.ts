@@ -9,6 +9,8 @@ const USERS_COLLECTION = "users";
 const USER_FOLLOWS_COLLECTION = "userFollows";
 const INVITES_COLLECTION = "invites";
 const LIST_LIKES_COLLECTION = "listLikes";
+const PLACE_STATS_COLLECTION = "placeStats";
+const PLACE_USER_SAVES_SUBCOLLECTION = "userSaves";
 
 const sanitizeUsername = (value: string) =>
   value
@@ -37,25 +39,131 @@ async function deleteUserFollows(uid: string): Promise<void> {
   await Promise.all([deleteQueryBatch(followerQuery), deleteQueryBatch(followeeQuery)]);
 }
 
+const normalizeCoord = (value: number) => Number(value.toFixed(5));
+
+const placeIdFromPin = (pin: { lat: number; lng: number; placeId?: string | null }) => {
+  if (pin.placeId) return `g_${pin.placeId}`;
+  return `${normalizeCoord(pin.lat).toFixed(5)}_${normalizeCoord(pin.lng).toFixed(5)}`;
+};
+
+const updateRecentSaverIds = (current: unknown, uid: string, include: boolean, limit = 24) => {
+  const withoutUid = Array.isArray(current) ? current.filter((id) => id !== uid) : [];
+  if (!include) {
+    return withoutUid;
+  }
+  return [uid, ...withoutUid].slice(0, limit);
+};
+
+async function deleteUserInvites(uid: string): Promise<void> {
+  const incomingQuery = db.collection(INVITES_COLLECTION).where("toUserId", "==", uid);
+  const outgoingQuery = db.collection(INVITES_COLLECTION).where("fromUserId", "==", uid);
+  await Promise.all([deleteQueryBatch(incomingQuery), deleteQueryBatch(outgoingQuery)]);
+}
+
+async function deleteUserListLikes(uid: string): Promise<void> {
+  const savedLikesQuery = db.collection(LIST_LIKES_COLLECTION).where("saverId", "==", uid);
+  const ownedLikesQuery = db.collection(LIST_LIKES_COLLECTION).where("ownerId", "==", uid);
+  await Promise.all([deleteQueryBatch(savedLikesQuery), deleteQueryBatch(ownedLikesQuery)]);
+}
+
+async function deleteUserLists(uid: string): Promise<void> {
+  await deleteQueryBatch(db.collection(USERS_COLLECTION).doc(uid).collection("lists"));
+}
+
+async function cleanupUserPlaceStats(
+  uid: string,
+  entries: Array<{ pin?: { lat?: number; lng?: number; placeId?: string | null }; bucket?: string }> = [],
+): Promise<void> {
+  const aggregateByPlace = new Map<string, { wishlist: boolean; favourite: boolean }>();
+
+  entries.forEach((entry) => {
+    const pin = entry?.pin;
+    if (
+      !pin ||
+      typeof pin.lat !== "number" ||
+      typeof pin.lng !== "number" ||
+      (entry.bucket !== "wishlist" && entry.bucket !== "favourite")
+    ) {
+      return;
+    }
+    const key = placeIdFromPin({
+      lat: pin.lat,
+      lng: pin.lng,
+      placeId: pin.placeId ?? null,
+    });
+    const current = aggregateByPlace.get(key) ?? { wishlist: false, favourite: false };
+    if (entry.bucket === "wishlist") {
+      current.wishlist = true;
+    }
+    if (entry.bucket === "favourite") {
+      current.favourite = true;
+    }
+    aggregateByPlace.set(key, current);
+  });
+
+  await Promise.all(
+    Array.from(aggregateByPlace.entries()).map(async ([placeId, buckets]) => {
+      const placeRef = db.collection(PLACE_STATS_COLLECTION).doc(placeId);
+      const userSaveRef = placeRef.collection(PLACE_USER_SAVES_SUBCOLLECTION).doc(uid);
+      await db.runTransaction(async (tx) => {
+        const placeSnap = await tx.get(placeRef);
+        const data = placeSnap.exists ? placeSnap.data() ?? {} : {};
+        const wishlistCount = Math.max(
+          0,
+          (typeof data.wishlistCount === "number" ? data.wishlistCount : 0) - (buckets.wishlist ? 1 : 0),
+        );
+        const favouriteCount = Math.max(
+          0,
+          (typeof data.favouriteCount === "number" ? data.favouriteCount : 0) - (buckets.favourite ? 1 : 0),
+        );
+
+        tx.set(
+          placeRef,
+          {
+            wishlistCount,
+            favouriteCount,
+            recentSaverIds: updateRecentSaverIds(data.recentSaverIds, uid, false),
+            recentWishlistSaverIds: updateRecentSaverIds(data.recentWishlistSaverIds, uid, false),
+            recentFavouriteSaverIds: updateRecentSaverIds(data.recentFavouriteSaverIds, uid, false),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+        tx.delete(userSaveRef);
+      });
+    }),
+  );
+}
+
+async function purgeUserData(uid: string): Promise<void> {
+  const userRef = db.collection(USERS_COLLECTION).doc(uid);
+  const userSnap = await userRef.get();
+  const userData = userSnap.exists ? userSnap.data() : null;
+  const entries = Array.isArray(userData?.entries) ? userData.entries : [];
+
+  await cleanupUserPlaceStats(uid, entries as Array<{ pin?: { lat?: number; lng?: number; placeId?: string | null }; bucket?: string }>);
+  await Promise.all([
+    deleteUserFollows(uid),
+    deleteUserInvites(uid),
+    deleteUserListLikes(uid),
+    deleteUserLists(uid),
+  ]);
+
+  await userRef.delete().catch((err: unknown) => {
+    const error = err as { code?: string };
+    if (error.code !== "not-found") {
+      throw err;
+    }
+  });
+}
+
 export const cleanupUserProfile = functionsV1
   .region("us-central1")
   .auth.user()
   .onDelete(async (user: functionsV1.auth.UserRecord) => {
     const uid = user.uid;
     logger.info("Cleaning up user", { uid });
-
-    await db
-      .collection("users")
-      .doc(uid)
-      .delete()
-      .catch((err: unknown) => {
-        const error = err as { code?: string };
-        if (error.code !== "not-found") {
-          throw err;
-        }
-      });
-
-    await deleteUserFollows(uid);
+    await purgeUserData(uid);
 
     logger.info("Finished cleanup for", { uid });
   });
@@ -119,16 +227,6 @@ export const deleteOwnAccount = functionsV1
     }
 
     await admin.auth().deleteUser(uid);
-    await db
-      .collection(USERS_COLLECTION)
-      .doc(uid)
-      .delete()
-      .catch((err: unknown) => {
-        const error = err as { code?: string };
-        if (error.code !== "not-found") {
-          throw err;
-        }
-      });
 
     return { ok: true };
   });
