@@ -52,6 +52,14 @@ const countsCache = new Map<
     recentFavouriteSaverIds: string[]
   }
 >()
+const exactFriendCache = new Map<
+  string,
+  {
+    recentSaverIds: string[]
+    recentWishlistSaverIds: string[]
+    recentFavouriteSaverIds: string[]
+  }
+>()
 
 const toMillis = (value: unknown) => {
   if (!value) return 0
@@ -166,6 +174,10 @@ export function usePlaceEngagement(
   const [legacyRecentState, setLegacyRecentState] = React.useState<typeof emptyState | null>(null)
   const [exactFriendState, setExactFriendState] = React.useState<typeof emptyState | null>(null)
   const placeId = React.useMemo(() => (pin ? placeIdFromPin(pin) : null), [pin])
+  const exactFriendCacheKey = React.useMemo(
+    () => (placeId ? `${placeId}:${followeeIds.join(",")}` : null),
+    [followeeIds, placeId]
+  )
 
   React.useEffect(() => {
     if (!placeId) {
@@ -308,6 +320,18 @@ export function usePlaceEngagement(
       return
     }
 
+    const cachedExactState = exactFriendCacheKey ? exactFriendCache.get(exactFriendCacheKey) : null
+    if (cachedExactState) {
+      setExactFriendState({
+        wishlistCount: baseState.wishlistCount,
+        favouriteCount: baseState.favouriteCount,
+        recentSaverIds: cachedExactState.recentSaverIds,
+        recentWishlistSaverIds: cachedExactState.recentWishlistSaverIds,
+        recentFavouriteSaverIds: cachedExactState.recentFavouriteSaverIds,
+      })
+      return
+    }
+
     const loadExactFriendState = async () => {
       const saveSnaps = await Promise.all(
         followeeIds.map((id) =>
@@ -332,13 +356,21 @@ export function usePlaceEngagement(
 
       if (!active) return
 
-      setExactFriendState({
+      const nextExactState = {
         wishlistCount: baseState.wishlistCount,
         favouriteCount: baseState.favouriteCount,
         recentSaverIds: records.map((record) => record.id),
         recentWishlistSaverIds: records.filter((record) => record.bucket === "wishlist").map((record) => record.id),
         recentFavouriteSaverIds: records.filter((record) => record.bucket === "favourite").map((record) => record.id),
-      })
+      }
+      if (exactFriendCacheKey) {
+        exactFriendCache.set(exactFriendCacheKey, {
+          recentSaverIds: nextExactState.recentSaverIds,
+          recentWishlistSaverIds: nextExactState.recentWishlistSaverIds,
+          recentFavouriteSaverIds: nextExactState.recentFavouriteSaverIds,
+        })
+      }
+      setExactFriendState(nextExactState)
     }
 
     void loadExactFriendState().catch((error) => {
@@ -360,6 +392,7 @@ export function usePlaceEngagement(
   }, [
     baseState.favouriteCount,
     baseState.wishlistCount,
+    exactFriendCacheKey,
     followeeIds,
     needsExactFriendFallback,
     placeId,

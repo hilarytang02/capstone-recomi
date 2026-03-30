@@ -121,7 +121,14 @@ export default function PlaceSocialProof({
         wishlistCount,
         favouriteCount,
         transition,
-        baseline: transitionBaselineRef.current,
+        baseline:
+          transitionBaselineRef.current ??
+          (transition
+            ? {
+                wishlist: wishlistCount,
+                favourite: favouriteCount,
+              }
+            : null),
       }),
     [favouriteCount, transition, wishlistCount]
   )
@@ -176,7 +183,16 @@ export default function PlaceSocialProof({
     }
 
     const hasCounts = displayCounts.wishlistCount > 0 || displayCounts.favouriteCount > 0
-    const readyForIncentive = hasSnapshot && friendsResolved && !transition && !hasCounts
+    const transitioningToEmpty =
+      !hasCounts &&
+      transition?.to === "none" &&
+      transition.from != null &&
+      transition.from !== "none"
+    const readyForIncentive =
+      hasSnapshot &&
+      friendsResolved &&
+      !hasCounts &&
+      (!transition || transitioningToEmpty)
 
     if (incentiveTimerRef.current) {
       clearTimeout(incentiveTimerRef.current)
@@ -195,6 +211,8 @@ export default function PlaceSocialProof({
         displayedLines.length === 0 &&
         !displayedIncentive &&
         !transition
+      const shouldBypassDisplayHold =
+        Boolean(transition)
 
       if (friendGraceTimerRef.current) {
         clearTimeout(friendGraceTimerRef.current)
@@ -206,7 +224,10 @@ export default function PlaceSocialProof({
       }
 
       const elapsed = Date.now() - lastDisplayAtRef.current
-      const delay = displayedLines.length > 0 && elapsed < MIN_DISPLAY_MS ? MIN_DISPLAY_MS - elapsed : 0
+      const delay =
+        !shouldBypassDisplayHold && displayedLines.length > 0 && elapsed < MIN_DISPLAY_MS
+          ? MIN_DISPLAY_MS - elapsed
+          : 0
 
       if (displayTimerRef.current) {
         clearTimeout(displayTimerRef.current)
@@ -228,8 +249,10 @@ export default function PlaceSocialProof({
       friendGraceTimerRef.current = null
     }
 
+    setDisplayedLines([])
+    setDisplayedIncentive(null)
+
     if (readyForIncentive) {
-      setDisplayedLines([])
       setDisplayedIncentive("Be the first to save this spot!")
       lastDisplayAtRef.current = Date.now()
     }

@@ -680,14 +680,18 @@ export default function MapScreen() {
     setInitialListStates(nextInitial);
     setPendingListStates(nextInitial);
 
-    if (matches.some((entry) => entry.bucket === "favourite")) {
-      setPinSaveStatus("favourite");
-    } else if (matches.some((entry) => entry.bucket === "wishlist")) {
-      setPinSaveStatus("wishlist");
-    } else {
-      setPinSaveStatus(null);
-    }
-  }, [entries, pin, lists]);
+    const nextStatusFromEntries = matches.some((entry) => entry.bucket === "favourite")
+      ? "favourite"
+      : matches.some((entry) => entry.bucket === "wishlist")
+        ? "wishlist"
+        : null;
+    const optimisticTarget =
+      pinSaveTransition?.to && pinSaveTransition.to !== "none" ? pinSaveTransition.to : null;
+    const shouldHoldOptimisticStatus =
+      pinSaveTransition != null && nextStatusFromEntries !== optimisticTarget;
+
+    setPinSaveStatus(shouldHoldOptimisticStatus ? optimisticTarget : nextStatusFromEntries);
+  }, [entries, pin, lists, pinSaveTransition]);
 
   React.useEffect(() => {
     setPinSaveTransition(null);
@@ -1016,7 +1020,8 @@ export default function MapScreen() {
   }, [defaultInviteMessage, inviteMessage, inviteTarget, pin, user?.uid]);
 
   const socialSaversLoading =
-    Boolean(pin) && (!engagementHasSnapshot || !engagementFriendsResolved);
+    Boolean(pin) &&
+    (!engagementHasSnapshot || (followeeIds.length > 0 && !engagementFriendsResolved));
   const totalEngagementCount = engagementWishlistCount + engagementFavouriteCount;
 
   // Reset camera heading to north when the compass button is tapped.
