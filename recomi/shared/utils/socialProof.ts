@@ -12,7 +12,7 @@ export const buildLineText = (count: number, friendLabel: string | null) => {
   if (friendLabel) {
     if (count <= 1) return friendLabel
     const remainder = count - 1
-    return `${friendLabel} and ${remainder} ${remainder === 1 ? "other" : "others"}`
+    return `${friendLabel} & ${remainder} ${remainder === 1 ? "other" : "others"}`
   }
   if (count === 1) return "1 person"
   return `${count} people`
@@ -40,11 +40,11 @@ export const buildLineTextWithSelf = ({
     if (!parts.length) {
       return remainder === 1 ? "1 person" : `${remainder} people`
     }
-    return `${parts.join(", ")} and ${remainder} ${remainder === 1 ? "other" : "others"}`
+    return `${parts.join(", ")} & ${remainder} ${remainder === 1 ? "other" : "others"}`
   }
 
   if (parts.length === 2) {
-    return `${parts[0]} and ${parts[1]}`
+    return `${parts[0]} & ${parts[1]}`
   }
   if (parts.length === 1) {
     return parts[0]

@@ -1586,7 +1586,7 @@ export default function MapScreen() {
             <Text style={styles.sheetTitle} numberOfLines={2}>
               {pin.label}
             </Text>
-            {isSheetCollapsed ? (
+            <View style={styles.sheetHeaderActions}>
               <Pressable
                 onPress={() => {
                   setListModalVisible(true);
@@ -1606,14 +1606,15 @@ export default function MapScreen() {
                   )}
                 </View>
               </Pressable>
-            ) : (
               <Pressable
                 onPress={() => setSheetState("hidden")}
-                style={styles.sheetClose}
+                style={styles.sheetCloseIcon}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
               >
-                <Text style={styles.sheetCloseText}>Close</Text>
+                <FontAwesome name="times" size={15} color="#0f172a" />
               </Pressable>
-            )}
+            </View>
           </View>
 
           {!isSheetCollapsed && (
@@ -1626,25 +1627,6 @@ export default function MapScreen() {
                   onTransitionSettled={() => setPinSaveTransition(null)}
                 />
               </View>
-              <Pressable
-                onPress={() => {
-                  setListModalVisible(true);
-                }}
-                style={[styles.heartButton, styles.heartButtonCompact]}
-                accessibilityRole="button"
-                accessibilityLabel="Save to list"
-              >
-                <View style={[styles.heartIconWrapper, styles.heartIconWrapperCompact]}>
-                  <FontAwesome
-                    name={pinSaveStatus ? "heart" : "heart-o"}
-                    size={18}
-                    color={pinSaveStatus ? "#ef4444" : "#0f172a"}
-                  />
-                  {pinSaveStatus === "favourite" && (
-                    <Text style={[styles.heartSparkle, styles.heartSparkleCompact]}>✨</Text>
-                  )}
-                </View>
-              </Pressable>
             </View>
           )}
 
@@ -2458,11 +2440,25 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0f172a",
   },
+  sheetHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginLeft: 8,
+  },
   sheetClose: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
     backgroundColor: "rgba(15, 23, 42, 0.08)",
+  },
+  sheetCloseIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(15, 23, 42, 0.08)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   sheetCloseText: {
     color: "#0f172a",
@@ -2494,11 +2490,6 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
   },
-  heartButtonCompact: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
   heartIconWrapper: {
     position: "relative",
     alignItems: "center",
@@ -2506,9 +2497,6 @@ const styles = StyleSheet.create({
   },
   heartIconWrapperSmall: {
     transform: [{ scale: 0.9 }],
-  },
-  heartIconWrapperCompact: {
-    transform: [{ scale: 0.95 }],
   },
   heartSparkle: {
     position: "absolute",
@@ -2520,11 +2508,6 @@ const styles = StyleSheet.create({
     top: -8,
     right: -6,
     fontSize: 12,
-  },
-  heartSparkleCompact: {
-    top: -9,
-    right: -7,
-    fontSize: 13,
   },
   sheetBody: {
     gap: 12,

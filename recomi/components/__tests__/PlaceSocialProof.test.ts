@@ -37,7 +37,7 @@ describe("PlaceSocialProof helpers", () => {
       selfBucket: null,
     })
 
-    expect(result.lines[0]).toEqual({ kind: "wishlist", text: "@topfriend and 3 others" })
+    expect(result.lines[0]).toEqual({ kind: "wishlist", text: "@topfriend & 3 others" })
   })
 
   test("favourite line falls back to count when no friend label", () => {
@@ -59,7 +59,7 @@ describe("PlaceSocialProof helpers", () => {
     })
 
     expect(result.lines).toEqual([
-      { kind: "wishlist", text: "@alex and 1 other" },
+      { kind: "wishlist", text: "@alex & 1 other" },
       { kind: "favourite", text: "@sam" },
     ])
   })
@@ -85,7 +85,7 @@ describe("PlaceSocialProof helpers", () => {
       selfBucket: "wishlist",
     })
 
-    expect(result.lines).toEqual([{ kind: "wishlist", text: "you, @june and 1 other" }])
+    expect(result.lines).toEqual([{ kind: "wishlist", text: "you, @june & 1 other" }])
   })
 
   test("formats self-only correctly", () => {
@@ -97,7 +97,7 @@ describe("PlaceSocialProof helpers", () => {
   test("formats viewer plus friend with no remainder", () => {
     expect(
       buildLineTextWithSelf({ count: 2, friendLabel: "@mia", includeSelf: true })
-    ).toBe("you and @mia")
+    ).toBe("you & @mia")
   })
 
   test("falls back to plain people count when no labels exist", () => {

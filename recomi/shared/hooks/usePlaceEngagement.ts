@@ -164,6 +164,7 @@ export function usePlaceEngagement(
   const [hasSnapshot, setHasSnapshot] = React.useState(false)
   const [needsLegacyFallback, setNeedsLegacyFallback] = React.useState(false)
   const [legacyRecentState, setLegacyRecentState] = React.useState<typeof emptyState | null>(null)
+  const [exactFriendState, setExactFriendState] = React.useState<typeof emptyState | null>(null)
   const placeId = React.useMemo(() => (pin ? placeIdFromPin(pin) : null), [pin])
 
   React.useEffect(() => {
@@ -172,6 +173,7 @@ export function usePlaceEngagement(
       setHasSnapshot(false)
       setNeedsLegacyFallback(false)
       setLegacyRecentState(null)
+      setExactFriendState(null)
       return
     }
 
@@ -281,9 +283,91 @@ export function usePlaceEngagement(
     }
   }, [followeeIds, needsLegacyFallback, placeId, socialGraphLoading, state.favouriteCount, state.wishlistCount])
 
+  const baseState = React.useMemo(() => legacyRecentState ?? state, [legacyRecentState, state])
+  const fastMatchedProfiles = React.useMemo(() => {
+    return buildMatchedProfiles({
+      recentSaverIds: baseState.recentSaverIds,
+      relatedUserIds: followeeIds,
+      relatedProfiles,
+    })
+  }, [baseState.recentSaverIds, followeeIds, relatedProfiles])
+
+  const needsExactFriendFallback =
+    hasSnapshot &&
+    !socialGraphLoading &&
+    !needsLegacyFallback &&
+    followeeIds.length > 0 &&
+    baseState.wishlistCount + baseState.favouriteCount > 0 &&
+    fastMatchedProfiles.length === 0
+
+  React.useEffect(() => {
+    let active = true
+
+    if (!placeId || !needsExactFriendFallback) {
+      setExactFriendState(null)
+      return
+    }
+
+    const loadExactFriendState = async () => {
+      const saveSnaps = await Promise.all(
+        followeeIds.map((id) =>
+          getDoc(doc(firestore, PLACE_STATS_COLLECTION, placeId, PLACE_USER_SAVES_SUBCOLLECTION, id))
+        )
+      )
+
+      const records = saveSnaps
+        .map((snapshot, index) => {
+          if (!snapshot.exists()) return null
+          const data = snapshot.data() as { bucket?: string; savedAt?: unknown }
+          const bucket = data.bucket === "wishlist" || data.bucket === "favourite" ? data.bucket : null
+          if (!bucket) return null
+          return {
+            id: followeeIds[index],
+            bucket,
+            savedAt: toMillis(data.savedAt),
+          }
+        })
+        .filter((record): record is { id: string; bucket: "wishlist" | "favourite"; savedAt: number } => Boolean(record))
+        .sort((a, b) => b.savedAt - a.savedAt)
+
+      if (!active) return
+
+      setExactFriendState({
+        wishlistCount: baseState.wishlistCount,
+        favouriteCount: baseState.favouriteCount,
+        recentSaverIds: records.map((record) => record.id),
+        recentWishlistSaverIds: records.filter((record) => record.bucket === "wishlist").map((record) => record.id),
+        recentFavouriteSaverIds: records.filter((record) => record.bucket === "favourite").map((record) => record.id),
+      })
+    }
+
+    void loadExactFriendState().catch((error) => {
+      console.warn("Failed to load exact friend place engagement", error)
+      if (active) {
+        setExactFriendState({
+          wishlistCount: baseState.wishlistCount,
+          favouriteCount: baseState.favouriteCount,
+          recentSaverIds: [],
+          recentWishlistSaverIds: [],
+          recentFavouriteSaverIds: [],
+        })
+      }
+    })
+
+    return () => {
+      active = false
+    }
+  }, [
+    baseState.favouriteCount,
+    baseState.wishlistCount,
+    followeeIds,
+    needsExactFriendFallback,
+    placeId,
+  ])
+
   const effectiveState = React.useMemo(
-    () => applyPlaceEngagementTransition(legacyRecentState ?? state, transition),
-    [legacyRecentState, state, transition]
+    () => applyPlaceEngagementTransition(exactFriendState ?? baseState, transition),
+    [baseState, exactFriendState, transition]
   )
 
   const matchedProfiles = React.useMemo(() => {
@@ -314,7 +398,11 @@ export function usePlaceEngagement(
     wishlistCount: effectiveState.wishlistCount,
     favouriteCount: effectiveState.favouriteCount,
     hasSnapshot,
-    friendsResolved: hasSnapshot && !socialGraphLoading && (!needsLegacyFallback || legacyRecentState !== null),
+    friendsResolved:
+      hasSnapshot &&
+      !socialGraphLoading &&
+      (!needsLegacyFallback || legacyRecentState !== null) &&
+      (!needsExactFriendFallback || exactFriendState !== null),
     wishlistFriend,
     favouriteFriend,
     matchedProfiles,
