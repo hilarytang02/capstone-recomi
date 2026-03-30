@@ -2,6 +2,7 @@ import React from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { collection, doc, getDoc, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { useIsFocused } from "@react-navigation/native";
 import { firestore } from "@/shared/firebase/app";
 import { useAuth } from "@/shared/context/auth";
 import { USERS_COLLECTION } from "@/shared/api/users";
@@ -65,11 +66,13 @@ const getInitials = (label: string) => {
 
 export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const { user, initializing } = useAuth();
   const [sentItems, setSentItems] = React.useState<InviteItem[]>([]);
   const [receivedItems, setReceivedItems] = React.useState<InviteItem[]>([]);
   const [activeTab, setActiveTab] = React.useState<InviteItem["type"]>("received");
   const [profilesById, setProfilesById] = React.useState<Record<string, UserProfileLite>>({});
+  const [expandedIds, setExpandedIds] = React.useState<Record<string, boolean>>({});
 
   const ensureProfiles = React.useCallback(async (ids: string[]) => {
     const missing = ids.filter((id) => !profilesById[id]);
@@ -190,6 +193,10 @@ export default function NotificationsScreen() {
     void ensureProfiles(ids);
   }, [ensureProfiles, receivedItems, sentItems]);
 
+  React.useEffect(() => {
+    setExpandedIds({});
+  }, [activeTab, isFocused]);
+
   const items = activeTab === "received" ? receivedItems : sentItems;
 
   return (
@@ -218,8 +225,23 @@ export default function NotificationsScreen() {
         renderItem={({ item }) => {
           const profile = profilesById[item.counterpartyId];
           const label = getUserLabel(profile);
+          const hasLongMessage = Boolean(item.message && item.message.length > 110);
+          const expanded = Boolean(expandedIds[item.id]);
+          const toggleExpanded = () => {
+            if (!hasLongMessage) return;
+            setExpandedIds((prev) => ({
+              ...prev,
+              [item.id]: !prev[item.id],
+            }));
+          };
           return (
-            <Pressable style={styles.card}>
+            <Pressable
+              style={[styles.card, expanded && styles.cardExpanded]}
+              onPress={toggleExpanded}
+              disabled={!hasLongMessage}
+              accessibilityRole={hasLongMessage ? "button" : undefined}
+              accessibilityLabel={hasLongMessage ? (expanded ? "Collapse notification message" : "Expand notification message") : undefined}
+            >
               <View style={styles.avatarWrap}>
                 <RemoteAvatar
                   uri={profile?.photoURL}
@@ -237,9 +259,16 @@ export default function NotificationsScreen() {
                   {label}
                 </Text>
                 {item.message ? (
-                  <Text style={styles.cardMessage} numberOfLines={2}>
-                    {item.message}
-                  </Text>
+                  <>
+                    <Text style={styles.cardMessage} numberOfLines={expanded ? undefined : 2}>
+                      {item.message}
+                    </Text>
+                    {hasLongMessage ? (
+                      <Text style={styles.cardExpandHint}>
+                        {expanded ? "Tap to collapse" : "Tap to read more"}
+                      </Text>
+                    ) : null}
+                  </>
                 ) : null}
               </View>
               <Text style={styles.time}>{formatInviteTime(item.createdAt)}</Text>
@@ -312,7 +341,7 @@ const styles = StyleSheet.create({
   },
   card: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
     paddingVertical: 14,
     paddingHorizontal: 14,
@@ -323,6 +352,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
+  },
+  cardExpanded: {
+    paddingBottom: 16,
   },
   avatarWrap: {
     width: 36,
@@ -349,10 +381,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#0f172a",
     marginTop: 6,
+    lineHeight: 18,
+  },
+  cardExpandHint: {
+    fontSize: 11,
+    color: "#64748b",
+    marginTop: 6,
+    fontWeight: "600",
   },
   time: {
     fontSize: 11,
     color: "#94a3b8",
+    paddingTop: 2,
   },
   emptyState: {
     paddingVertical: 40,

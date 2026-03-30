@@ -50,7 +50,7 @@ const SHEET_LAT_OFFSET_FACTOR = 0.38; // push map center upward when sheet is vi
 
 type SheetState = "hidden" | "collapsed" | "half" | "expanded";
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
 const SHEET_HEIGHTS: Record<SheetState, number> = {
   hidden: 0,
   collapsed: Math.max(SCREEN_HEIGHT * 0.12, 110),
@@ -848,14 +848,19 @@ export default function MapScreen() {
     }
   }, [isBuildingCentered, tenantAnchor, tenantPickerVisible]);
 
-  const tenantPickerStyle = React.useMemo(() => {
-    const maxHeight = sheetState === "half" ? "40%" : "48%";
-    const recenterStack = 240;
-    const bottomOffset =
-      sheetState === "half" ? sheetHeight + 16 : insets.bottom + 24 + recenterStack;
-    const rightInset = sheetState === "half" ? 16 : 160;
-    return { top: insets.top + 72, bottom: bottomOffset, maxHeight, right: rightInset };
-  }, [insets.bottom, insets.top, sheetHeight, sheetState]);
+  const tenantPickerStyle = React.useMemo(
+    () => ({
+      maxHeight: sheetState === "half" ? 220 : 280,
+    }),
+    [sheetState]
+  );
+  const tenantPickerFloatingStyle = React.useMemo(
+    () => ({
+      right: 24,
+      bottom: 24 + 48 + 12 + 48 + 20,
+    }),
+    []
+  );
 
   const handleTenantSelect = (tenant: TenantCandidate) => {
     setTenantPickerVisible(false);
@@ -1385,6 +1390,57 @@ export default function MapScreen() {
         </View>
       )}
 
+      {tenantPickerVisible && !tenantPickerHidden ? (
+        <View style={[styles.tenantPickerFloating, tenantPickerFloatingStyle]}>
+          <View style={[styles.tenantPickerCard, tenantPickerStyle]}>
+            <View style={styles.tenantPickerHeader}>
+              <Text style={styles.tenantPickerTitle}>Select a store</Text>
+              <Pressable onPress={() => setTenantPickerVisible(false)} style={styles.sheetClose}>
+                <Text style={styles.sheetCloseText}>Close</Text>
+              </Pressable>
+            </View>
+            <View style={styles.tenantPickerBody}>
+              <View style={styles.tenantFloors}>
+                <FlatList
+                  style={styles.tenantFloorList}
+                  data={tenantFloors}
+                  keyExtractor={(item) => item}
+                  renderItem={({ item }) => {
+                    const active = item === tenantFloor;
+                    return (
+                      <Pressable
+                        onPress={() => setTenantFloor(item)}
+                        style={[styles.tenantFloorItem, active && styles.tenantFloorItemActive]}
+                      >
+                        <Text style={[styles.tenantFloorText, active && styles.tenantFloorTextActive]}>
+                          {item}
+                        </Text>
+                      </Pressable>
+                    );
+                  }}
+                />
+              </View>
+              <View style={styles.tenantList}>
+                <Text style={styles.tenantFloorHeading}>
+                  {tenantFloor ?? "All floors"}
+                </Text>
+                <FlatList
+                  data={visibleTenants}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item }) => (
+                    <Pressable onPress={() => handleTenantSelect(item)} style={styles.tenantItem}>
+                      <Text style={styles.tenantItemText} numberOfLines={2}>
+                        {item.name}
+                      </Text>
+                    </Pressable>
+                  )}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.recenter}>
         <CompassButton heading={heading} onPress={handleCompassPress} />
         <Pressable onPress={goToMyLocation} style={styles.recenterBtn}>
@@ -1525,61 +1581,6 @@ export default function MapScreen() {
           )}
         </View>
       )}
-
-      <Modal
-        transparent
-        visible={tenantPickerVisible && !tenantPickerHidden}
-        animationType="fade"
-        onRequestClose={() => setTenantPickerVisible(false)}
-      >
-        <Pressable style={styles.modalBackdrop} onPress={() => setTenantPickerVisible(false)} />
-        <View style={[styles.tenantPickerCard, tenantPickerStyle]}>
-          <View style={styles.tenantPickerHeader}>
-            <Text style={styles.tenantPickerTitle}>Select a store</Text>
-            <Pressable onPress={() => setTenantPickerVisible(false)} style={styles.sheetClose}>
-              <Text style={styles.sheetCloseText}>Close</Text>
-            </Pressable>
-          </View>
-          <View style={styles.tenantPickerBody}>
-            <View style={styles.tenantFloors}>
-              <FlatList
-                style={styles.tenantFloorList}
-                data={tenantFloors}
-                keyExtractor={(item) => item}
-                renderItem={({ item }) => {
-                  const active = item === tenantFloor;
-                  return (
-                    <Pressable
-                      onPress={() => setTenantFloor(item)}
-                      style={[styles.tenantFloorItem, active && styles.tenantFloorItemActive]}
-                    >
-                      <Text style={[styles.tenantFloorText, active && styles.tenantFloorTextActive]}>
-                        {item}
-                      </Text>
-                    </Pressable>
-                  );
-                }}
-              />
-            </View>
-            <View style={styles.tenantList}>
-              <Text style={styles.tenantFloorHeading}>
-                {tenantFloor ?? "All floors"}
-              </Text>
-              <FlatList
-                data={visibleTenants}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <Pressable onPress={() => handleTenantSelect(item)} style={styles.tenantItem}>
-                    <Text style={styles.tenantItemText} numberOfLines={2}>
-                      {item.name}
-                    </Text>
-                  </Pressable>
-                )}
-              />
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       <Modal
         visible={listModalVisible}
@@ -2533,11 +2534,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "rgba(15, 23, 42, 0.4)",
   },
-  tenantPickerCard: {
+  tenantPickerFloating: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    maxHeight: "60%",
+    alignItems: "flex-end",
+  },
+  tenantPickerCard: {
+    width: Math.min(SCREEN_WIDTH - 48, 320),
     backgroundColor: "#ffffff",
     borderRadius: 18,
     padding: 16,
@@ -2561,7 +2563,7 @@ const styles = StyleSheet.create({
   tenantPickerBody: {
     flexDirection: "row",
     gap: 12,
-    maxHeight: "85%",
+    flex: 1,
   },
   tenantFloors: {
     width: 96,
