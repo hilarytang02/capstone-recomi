@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, Platform } from "react-native";
+import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
@@ -11,6 +11,8 @@ import { getSignupDraft, setSignupDraft } from "@/shared/state/signupDraft";
 
 // Basic client-side validation to catch obvious typos before hitting Firebase.
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PRIVACY_POLICY_URL =
+  "https://www.notion.so/Recomi-Privacy-Policy-3340b7774c2f80a18a48f0b9527cd7e2";
 
 // Presents the email/password signup form and forwards submissions to Firebase Auth.
 export default function SignupScreen() {
@@ -26,6 +28,12 @@ export default function SignupScreen() {
 
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
+
+  const handleOpenPrivacyPolicy = React.useCallback(() => {
+    void Linking.openURL(PRIVACY_POLICY_URL).catch(() => {
+      setFormError("Unable to open the Privacy Policy right now.");
+    });
+  }, []);
 
   // Local validation prevents unnecessary network calls and gives better UX.
   const handleCreateAccount = async () => {
@@ -142,6 +150,14 @@ export default function SignupScreen() {
             </>
           )}
         </Pressable>
+
+        <Text style={styles.privacyText}>
+          By continuing, you acknowledge our{" "}
+          <Text style={styles.privacyLink} onPress={handleOpenPrivacyPolicy}>
+            Privacy Policy
+          </Text>
+          .
+        </Text>
 
         <Text style={styles.loginPrompt}>
           Already have an account?{" "}
@@ -262,6 +278,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: "#0f172a",
+  },
+  privacyText: {
+    textAlign: "center",
+    color: "#64748b",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 2,
+  },
+  privacyLink: {
+    color: "#0f172a",
+    fontWeight: "600",
+    textDecorationLine: "underline",
   },
   loginPrompt: {
     textAlign: "center",
