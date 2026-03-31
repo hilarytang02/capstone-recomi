@@ -106,6 +106,8 @@ type SavedMarker = {
   id: string;
   lat: number;
   lng: number;
+  renderLat: number;
+  renderLng: number;
   label: string;
   placeId?: string | null;
   bucket: "wishlist" | "favourite";
@@ -135,6 +137,9 @@ const coordsMatch = (a: { lat: number; lng: number }, b: { lat: number; lng: num
 const makePlaceMarkerKey = (pin: { lat: number; lng: number; label?: string | null; placeId?: string | null }) =>
   pin.placeId || `${pin.lat.toFixed(7)}:${pin.lng.toFixed(7)}:${(pin.label ?? "").trim().toLowerCase()}`;
 
+const makeSavedMarkerOverlapKey = (pin: { lat: number; lng: number }) =>
+  `${pin.lat.toFixed(4)}:${pin.lng.toFixed(4)}`;
+
 const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
   marker,
   onPress,
@@ -145,8 +150,8 @@ const SavedPlaceMarker = React.memo(function SavedPlaceMarker({
   tracksViewChanges: boolean;
 }) {
   const coordinate = React.useMemo(
-    () => ({ latitude: marker.lat, longitude: marker.lng }),
-    [marker.lat, marker.lng]
+    () => ({ latitude: marker.renderLat, longitude: marker.renderLng }),
+    [marker.renderLat, marker.renderLng]
   );
 
   return (
@@ -196,6 +201,7 @@ export default function MapScreen() {
     locationLabel: string;
   } | null>(null);
   const latestPinRequestRef = React.useRef(0);
+  const suppressMapPressUntilRef = React.useRef(0);
   const lastTapAtRef = React.useRef(0);
   const [tenantPickerVisible, setTenantPickerVisible] = React.useState(false);
   const [tenantCandidates, setTenantCandidates] = React.useState<TenantCandidate[]>([]);
@@ -488,6 +494,8 @@ export default function MapScreen() {
           id: key,
           lat: entry.pin.lat,
           lng: entry.pin.lng,
+          renderLat: entry.pin.lat,
+          renderLng: entry.pin.lng,
           label: entry.pin.label,
           placeId: entry.pin.placeId ?? null,
           bucket: entry.bucket,
@@ -511,7 +519,34 @@ export default function MapScreen() {
       }
     });
 
-    return Array.from(grouped.values());
+    const markers = Array.from(grouped.values());
+    const overlapGroups = new Map<string, SavedMarker[]>();
+
+    markers.forEach((marker) => {
+      const overlapKey = makeSavedMarkerOverlapKey(marker.pin);
+      const group = overlapGroups.get(overlapKey);
+      if (group) {
+        group.push(marker);
+      } else {
+        overlapGroups.set(overlapKey, [marker]);
+      }
+    });
+
+    overlapGroups.forEach((group) => {
+      if (group.length <= 1) {
+        return;
+      }
+      const angleStep = (Math.PI * 2) / group.length;
+      const latOffset = 0.00005;
+      const lngOffset = 0.00005;
+      group.forEach((marker, index) => {
+        const angle = angleStep * index - Math.PI / 2;
+        marker.renderLat = marker.lat + Math.sin(angle) * latOffset;
+        marker.renderLng = marker.lng + Math.cos(angle) * lngOffset;
+      });
+    });
+
+    return markers;
   }, [entries, filteredSavedEntries, friendEntries, likedLists]);
 
   const visibleSavedMarkers = React.useMemo(() => {
@@ -733,8 +768,11 @@ export default function MapScreen() {
     if (!mapFocusEntry) return;
 
     const { pin: entryPin } = mapFocusEntry;
+    suppressMapPressUntilRef.current = Date.now() + 500;
+    latestPinRequestRef.current += 1;
     setListModalVisible(false);
     setBulkMovePrompt(null);
+    setTenantPickerVisible(false);
     setQuery("");
     setSheetState("half");
     setPin({
@@ -850,6 +888,7 @@ export default function MapScreen() {
 
   // Supports long-press/double-tap interactions by dropping pins directly on the map.
   const handleMapPress = ({ latitude, longitude }: { latitude: number; longitude: number }) => {
+    if (Date.now() < suppressMapPressUntilRef.current) return;
     dismissKeyboard();
     const now = Date.now();
     if (now - lastTapAtRef.current < 200) return;
@@ -894,6 +933,7 @@ export default function MapScreen() {
   };
 
   const handlePoiPress = (event: any) => {
+    if (Date.now() < suppressMapPressUntilRef.current) return;
     const { coordinate, name, placeId } = event?.nativeEvent ?? {};
     if (!coordinate?.latitude || !coordinate?.longitude) return;
     dismissKeyboard();
@@ -937,12 +977,15 @@ export default function MapScreen() {
 
   const handleSavedMarkerPress = React.useCallback(
     (marker: SavedMarker) => {
+      suppressMapPressUntilRef.current = Date.now() + 500;
+      latestPinRequestRef.current += 1;
       dismissKeyboard();
       setQuery("");
       setSearchSuggestions([]);
       setSearchFocused(false);
       setListModalVisible(false);
       setBulkMovePrompt(null);
+      setTenantPickerVisible(false);
       setPin({
         lat: marker.pin.lat,
         lng: marker.pin.lng,
