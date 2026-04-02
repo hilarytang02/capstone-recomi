@@ -31,7 +31,8 @@
           }
         ],
         "NSPhotoLibraryUsageDescription": "Recomi needs access to your photo library so you can choose a profile picture.",
-        "NSCameraUsageDescription": "Recomi uses your camera so you can take a profile picture."
+        "NSCameraUsageDescription": "Recomi uses your camera so you can take a profile picture.",
+        "NSLocationWhenInUseUsageDescription": "Recomi uses your location while you are using the map to center the map on your current position and show nearby places you can save to a list. For example, tapping My Location helps you find and pin restaurants, cafes, or parks around you."
       }
     },
     "android": {
