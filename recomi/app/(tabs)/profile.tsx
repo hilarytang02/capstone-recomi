@@ -35,6 +35,7 @@ import RemoteAvatar from "../../components/RemoteAvatar";
 import { collection, doc, getCountFromServer, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { firestore } from "../../shared/firebase/app";
 import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION, type UserDocument } from "../../shared/api/users";
+import { useModeration } from "../../shared/context/moderation";
 
 type GroupedList = {
   definition: SavedListDefinition;
@@ -88,6 +89,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { blockedUserIds, unblock } = useModeration();
   const {
     entries,
     lists,
@@ -129,6 +131,11 @@ export default function ProfileScreen() {
   const [followersList, setFollowersList] = React.useState<ProfileLite[]>([]);
   const [followingList, setFollowingList] = React.useState<ProfileLite[]>([]);
   const [followLoading, setFollowLoading] = React.useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
+  const [blockedUsersOpen, setBlockedUsersOpen] = React.useState(false);
+  const [blockedProfiles, setBlockedProfiles] = React.useState<ProfileLite[]>([]);
+  const [blockedProfilesLoading, setBlockedProfilesLoading] = React.useState(false);
+  const [unblockBusyId, setUnblockBusyId] = React.useState<string | null>(null);
   const resetWiggle = React.useCallback(() => {
     wiggleLoop.current?.stop();
     wiggleLoop.current = null;
@@ -453,6 +460,62 @@ export default function ProfileScreen() {
     }
   }, [signOut]);
 
+  React.useEffect(() => {
+    if (!blockedUsersOpen) return;
+
+    let active = true;
+    const loadBlockedProfiles = async () => {
+      setBlockedProfilesLoading(true);
+      try {
+        const profiles = await Promise.all(
+          blockedUserIds.map(async (id) => {
+            const snapshot = await getDoc(doc(firestore, USERS_COLLECTION, id));
+            const data = snapshot.exists()
+              ? (snapshot.data() as { displayName?: string | null; username?: string | null; photoURL?: string | null })
+              : {};
+            return {
+              id,
+              displayName: data.displayName ?? null,
+              username: data.username ?? null,
+              photoURL: data.photoURL ?? null,
+            } as ProfileLite;
+          }),
+        );
+        if (!active) return;
+        setBlockedProfiles(profiles);
+      } catch (error) {
+        if (!active) return;
+        console.warn("Failed to load blocked users", error);
+        setBlockedProfiles([]);
+      } finally {
+        if (active) {
+          setBlockedProfilesLoading(false);
+        }
+      }
+    };
+
+    void loadBlockedProfiles();
+    return () => {
+      active = false;
+    };
+  }, [blockedUserIds, blockedUsersOpen]);
+
+  const handleUnblock = React.useCallback(
+    async (uid: string) => {
+      if (unblockBusyId) return;
+      setUnblockBusyId(uid);
+      try {
+        await unblock(uid);
+      } catch (error) {
+        console.warn("Failed to unblock user", error);
+        Alert.alert("Unable to unblock", "Please try again.");
+      } finally {
+        setUnblockBusyId(null);
+      }
+    },
+    [unblock, unblockBusyId]
+  );
+
   const pinsForMap = React.useMemo<SavedEntry[]>(() => {
     if (!selectedGroup) return [];
     return [...selectedGroup.wishlist, ...selectedGroup.favourite];
@@ -737,18 +800,13 @@ export default function ProfileScreen() {
       >
         <View style={styles.profileHeader}>
           <Pressable
-            style={styles.signOutAction}
-            onPress={handleSignOut}
-            disabled={signingOut}
+            style={styles.profileMenuButton}
+            onPress={() => setAccountMenuOpen(true)}
             accessibilityRole="button"
-            accessibilityLabel="Sign out"
+            accessibilityLabel="Profile actions"
             hitSlop={12}
           >
-            {signingOut ? (
-              <ActivityIndicator size="small" color="#0f172a" />
-            ) : (
-              <FontAwesome name="sign-out" size={16} color="#475569" />
-            )}
+            <FontAwesome name="ellipsis-h" size={16} color="#475569" />
           </Pressable>
           <View style={styles.profileInfoRow}>
             {profilePhoto ? (
@@ -1253,6 +1311,101 @@ export default function ProfileScreen() {
       </ScrollView>
 
       <Modal
+        visible={accountMenuOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setAccountMenuOpen(false)}
+      >
+        <Pressable style={styles.menuOverlay} onPress={() => setAccountMenuOpen(false)}>
+          <View style={styles.menuCard}>
+            <Pressable
+              style={styles.menuRow}
+              onPress={() => {
+                setAccountMenuOpen(false);
+                setBlockedUsersOpen(true);
+              }}
+            >
+              <Text style={styles.menuText}>Blocked Users</Text>
+            </Pressable>
+            <Pressable
+              style={styles.menuRow}
+              onPress={() => {
+                setAccountMenuOpen(false);
+                void handleSignOut();
+              }}
+              disabled={signingOut}
+            >
+              <Text style={[styles.menuText, styles.menuDanger]}>{signingOut ? "Signing out..." : "Log Out"}</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={blockedUsersOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setBlockedUsersOpen(false)}
+      >
+        <View style={styles.followModalOverlay}>
+          <View style={styles.followModalCard}>
+            <View style={styles.followModalHeader}>
+              <Text style={styles.followModalTitle}>Blocked Users</Text>
+              <Pressable onPress={() => setBlockedUsersOpen(false)} hitSlop={8}>
+                <Text style={styles.followModalClose}>Close</Text>
+              </Pressable>
+            </View>
+            {blockedProfilesLoading ? (
+              <View style={styles.followLoading}>
+                <ActivityIndicator size="small" color="#0f172a" />
+              </View>
+            ) : (
+              <FlatList
+                data={blockedProfiles}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.followList}
+                renderItem={({ item }) => {
+                  const label = item.displayName ?? (item.username ? `@${item.username}` : "Unknown");
+                  const sub = item.username && item.displayName ? `@${item.username}` : null;
+                  const isBusy = unblockBusyId === item.id;
+                  return (
+                    <View style={styles.followRow}>
+                      <RemoteAvatar
+                        uri={item.photoURL}
+                        label={label}
+                        size={36}
+                        backgroundColor="#f1f5f9"
+                        textColor="#64748b"
+                        fontSize={14}
+                      />
+                      <View style={styles.followText}>
+                        <Text style={styles.followName} numberOfLines={1}>
+                          {label}
+                        </Text>
+                        {sub ? <Text style={styles.followSub} numberOfLines={1}>{sub}</Text> : null}
+                      </View>
+                      <Pressable
+                        style={styles.unblockButton}
+                        onPress={() => void handleUnblock(item.id)}
+                        disabled={isBusy}
+                      >
+                        <Text style={styles.unblockButtonText}>{isBusy ? "..." : "Unblock"}</Text>
+                      </Pressable>
+                    </View>
+                  );
+                }}
+                ListEmptyComponent={
+                  <View style={styles.followEmpty}>
+                    <Text style={styles.followEmptyText}>No blocked users.</Text>
+                  </View>
+                }
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={followModalOpen}
         animationType="fade"
         transparent
@@ -1618,7 +1771,7 @@ const styles = StyleSheet.create({
     gap: 16,
     position: 'relative',
   },
-  signOutAction: {
+  profileMenuButton: {
     position: 'absolute',
     top: -2,
     right: -4,
@@ -1631,6 +1784,31 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 12,
     backgroundColor: '#f1f5f9',
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.28)',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  menuCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  menuRow: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e2e8f0',
+  },
+  menuText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  menuDanger: {
+    color: '#b91c1c',
   },
   profileInfoRow: {
     flexDirection: 'row',
@@ -2054,6 +2232,17 @@ const styles = StyleSheet.create({
   followEmptyText: {
     fontSize: 12,
     color: '#94a3b8',
+  },
+  unblockButton: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#e2e8f0',
+  },
+  unblockButtonText: {
+    color: '#0f172a',
+    fontSize: 13,
+    fontWeight: '600',
   },
   galleryAddCard: {
     width: 140,

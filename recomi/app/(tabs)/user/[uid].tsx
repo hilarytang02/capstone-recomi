@@ -130,6 +130,8 @@ export default function UserProfileScreen() {
   const [reportReason, setReportReason] = React.useState("");
   const [reportSubmitting, setReportSubmitting] = React.useState(false);
   const [blockBusy, setBlockBusy] = React.useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = React.useState(false);
+  const [listMenuOpen, setListMenuOpen] = React.useState(false);
 
   // Live subscriptions keep profile + list data fresh while viewing someone else.
   React.useEffect(() => {
@@ -772,6 +774,8 @@ export default function UserProfileScreen() {
         await unblock(resolvedUid);
       } else {
         await block(resolvedUid);
+        setProfileMenuOpen(false);
+        router.back();
       }
     } catch (err) {
       console.error("Failed to update block state", err);
@@ -779,7 +783,7 @@ export default function UserProfileScreen() {
     } finally {
       setBlockBusy(false);
     }
-  }, [block, blockBusy, isBlocked, isSelf, resolvedUid, unblock, user?.uid]);
+  }, [block, blockBusy, isBlocked, isSelf, resolvedUid, router, unblock, user?.uid]);
 
   React.useEffect(() => {
     if (!followModalOpen) return;
@@ -805,10 +809,7 @@ export default function UserProfileScreen() {
   if (isBlocked) {
     return (
       <View style={styles.center}>
-        <Text style={styles.errorText}>You have blocked this user.</Text>
-        <Pressable style={styles.editAccountButton} onPress={handleToggleBlock} disabled={blockBusy}>
-          <Text style={styles.editAccountLabel}>{blockBusy ? "..." : "Unblock"}</Text>
-        </Pressable>
+        <Text style={styles.errorText}>This user is blocked.</Text>
       </View>
     );
   }
@@ -921,22 +922,12 @@ export default function UserProfileScreen() {
               ) : null}
               {!isSelf ? (
                 <Pressable
-                  style={styles.secondaryActionButton}
-                  onPress={() => {
-                    setReportReason("");
-                    setReportUserVisible(true);
-                  }}
+                  style={styles.profileMenuTrigger}
+                  onPress={() => setProfileMenuOpen(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="More actions"
                 >
-                  <Text style={styles.secondaryActionLabel}>Report User</Text>
-                </Pressable>
-              ) : null}
-              {!isSelf ? (
-                <Pressable
-                  style={[styles.secondaryActionButton, blockBusy && styles.editAccountButtonDisabled]}
-                  onPress={handleToggleBlock}
-                  disabled={blockBusy}
-                >
-                  <Text style={styles.secondaryActionLabel}>{blockBusy ? "..." : "Block"}</Text>
+                  <FontAwesome name="ellipsis-h" size={16} color="#0f172a" />
                 </Pressable>
               ) : null}
             </View>
@@ -1080,13 +1071,10 @@ export default function UserProfileScreen() {
                           </Pressable>
                           {!isSelf ? (
                             <Pressable
-                              style={styles.detailReportButton}
-                              onPress={() => {
-                                setReportReason("");
-                                setReportListVisible(true);
-                              }}
+                              style={styles.detailOverflowButton}
+                              onPress={() => setListMenuOpen(true)}
                             >
-                              <Text style={styles.detailReportLabel}>Report</Text>
+                              <FontAwesome name="ellipsis-h" size={14} color="#0f172a" />
                             </Pressable>
                           ) : null}
                         </View>
@@ -1326,6 +1314,53 @@ export default function UserProfileScreen() {
         }}
         onSubmit={handleSubmitUserReport}
       />
+
+      <Modal
+        visible={profileMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setProfileMenuOpen(false)}
+      >
+        <Pressable style={styles.actionSheetOverlay} onPress={() => setProfileMenuOpen(false)}>
+          <View style={styles.actionSheetCard}>
+            <Pressable
+              style={styles.actionSheetRow}
+              onPress={() => {
+                setProfileMenuOpen(false);
+                setReportReason("");
+                setReportUserVisible(true);
+              }}
+            >
+              <Text style={styles.actionSheetText}>Report User</Text>
+            </Pressable>
+            <Pressable style={styles.actionSheetRow} onPress={handleToggleBlock} disabled={blockBusy}>
+              <Text style={[styles.actionSheetText, styles.actionSheetDanger]}>{blockBusy ? "Blocking..." : "Block User"}</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={listMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setListMenuOpen(false)}
+      >
+        <Pressable style={styles.actionSheetOverlay} onPress={() => setListMenuOpen(false)}>
+          <View style={styles.actionSheetCard}>
+            <Pressable
+              style={styles.actionSheetRow}
+              onPress={() => {
+                setListMenuOpen(false);
+                setReportReason("");
+                setReportListVisible(true);
+              }}
+            >
+              <Text style={styles.actionSheetText}>Report List</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
 
       <ReportModal
         visible={reportListVisible}
@@ -1649,17 +1684,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 10,
     flexWrap: "wrap",
+    alignItems: "center",
   },
-  secondaryActionButton: {
+  profileMenuTrigger: {
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    width: 38,
+    height: 38,
     backgroundColor: "#e2e8f0",
-  },
-  secondaryActionLabel: {
-    color: "#0f172a",
-    fontSize: 14,
-    fontWeight: "600",
+    alignItems: "center",
+    justifyContent: "center",
   },
   profileTabs: {
     flexDirection: "row",
@@ -2021,16 +2054,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-  detailReportButton: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  detailOverflowButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: "#e2e8f0",
-  },
-  detailReportLabel: {
-    color: "#0f172a",
-    fontSize: 13,
-    fontWeight: "600",
+    alignItems: "center",
+    justifyContent: "center",
   },
   detailStarButtonActive: {
     backgroundColor: "rgba(250,204,21,0.18)",
@@ -2240,5 +2270,30 @@ const styles = StyleSheet.create({
   },
   mapModalEmptyText: {
     color: "#94a3b8",
+  },
+  actionSheetOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.28)",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  actionSheetCard: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    overflow: "hidden",
+  },
+  actionSheetRow: {
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e2e8f0",
+  },
+  actionSheetText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  actionSheetDanger: {
+    color: "#b91c1c",
   },
 });
