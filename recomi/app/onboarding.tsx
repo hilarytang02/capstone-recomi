@@ -20,6 +20,24 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { FirebaseError } from "firebase/app";
 import { clearSignupDraft } from "@/shared/state/signupDraft";
 
+const sanitizeUsernameCandidate = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]/g, "");
+
+const buildGeneratedUsernameCandidate = (user: { displayName?: string | null; email?: string | null; uid: string }) => {
+  const fromDisplay = user.displayName?.replace(/\s+/g, "");
+  const displayCandidate = fromDisplay ? sanitizeUsernameCandidate(fromDisplay) : "";
+  if (displayCandidate) return displayCandidate;
+
+  const fromEmail = user.email?.split("@")[0];
+  const emailCandidate = fromEmail ? sanitizeUsernameCandidate(fromEmail) : "";
+  if (emailCandidate) return emailCandidate;
+
+  return `recomi${user.uid.slice(0, 6)}`;
+};
+
 // Guides new users through profile setup before unlocking the rest of the app.
 export default function OnboardingScreen() {
   const { user, setOnboardingComplete, signOut } = useAuth();
@@ -58,9 +76,21 @@ export default function OnboardingScreen() {
         const snapshot = await getDoc(doc(firestore, USERS_COLLECTION, user.uid));
         if (!active || !snapshot.exists()) return;
         const data = snapshot.data() as UserDocument;
+        const existingDisplayName = typeof data.displayName === "string" ? data.displayName.trim() : "";
+        if (existingDisplayName) {
+          setDisplayName(existingDisplayName);
+        }
         const existingUsername = typeof data.username === "string" ? data.username : "";
         const normalized = existingUsername.trim().toLowerCase();
-        if (normalized) {
+        const generatedCandidate = buildGeneratedUsernameCandidate({
+          displayName: data.displayName ?? user.displayName ?? null,
+          email: data.email ?? user.email ?? null,
+          uid: user.uid,
+        });
+        const shouldPrefillUsername =
+          Boolean(data.hasCompletedOnboarding) || (normalized && normalized !== generatedCandidate);
+
+        if (normalized && shouldPrefillUsername) {
           setUsername(existingUsername);
           setUsernameAvailable(true);
           setLastCheckedUsername(normalized);
@@ -205,10 +235,6 @@ export default function OnboardingScreen() {
   // Final submission stitches together user input and persists it via Firestore.
   const handleComplete = async () => {
     if (!user) return;
-    if (!displayName.trim()) {
-      Alert.alert("Name is required", "Please enter your name.");
-      return;
-    }
     if (!usernameAvailable || (lastCheckedUsername !== normalizedUsername)) {
       const ok = await handleCheckUsername();
       if (!ok) return;
@@ -218,7 +244,7 @@ export default function OnboardingScreen() {
     try {
       const resolvedPhotoURL = await resolveProfilePhotoURL(user.uid, photoURL ?? null);
       await completeOnboarding(user.uid, {
-        displayName: displayName.trim(),
+        displayName: displayName.trim() || null,
         username: normalizedUsername,
         bio: bio.trim() || null,
         photoURL: resolvedPhotoURL,
@@ -252,11 +278,11 @@ export default function OnboardingScreen() {
 
       {step === 1 ? (
         <View style={styles.card}>
-          <Text style={styles.label}>Name</Text>
+          <Text style={styles.label}>Name (optional)</Text>
           <TextInput
             value={displayName}
             onChangeText={setDisplayName}
-            placeholder="Your name"
+            placeholder="Add a name if you want"
             style={styles.input}
           />
 
@@ -311,7 +337,7 @@ export default function OnboardingScreen() {
               <Text style={styles.secondaryLabel}>Choose photo</Text>
             </Pressable>
           </View>
-          <Text style={styles.helper}>We’ll use your Google photo by default if you skip.</Text>
+          <Text style={styles.helper}>We’ll keep your current profile photo if you skip.</Text>
 
           <Pressable style={styles.primaryButton} onPress={handleComplete} disabled={saving}>
             {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryLabel}>Finish</Text>}

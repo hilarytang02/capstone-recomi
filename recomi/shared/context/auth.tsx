@@ -218,6 +218,12 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
         ],
         nonce: hashedNonce,
       });
+      console.log("[auth] Apple credential received:", {
+        user: credential.user ?? null,
+        email: credential.email ?? null,
+        fullName: credential.fullName ?? null,
+        hasIdentityToken: Boolean(credential.identityToken),
+      });
 
       if (!credential.identityToken) {
         throw new Error("Apple authentication did not return an identity token.");
