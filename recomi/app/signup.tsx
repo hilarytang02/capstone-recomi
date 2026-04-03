@@ -14,6 +14,8 @@ import { getSignupDraft, setSignupDraft } from "@/shared/state/signupDraft";
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PRIVACY_POLICY_URL =
   "https://www.notion.so/Recomi-Privacy-Policy-3340b7774c2f80a18a48f0b9527cd7e2";
+const TERMS_OF_USE_URL =
+  "https://confusion-chips-3c3.notion.site/Terms-of-Use-3370b7774c2f80b4bcb1e633496a3c9f?source=copy_link";
 
 // Presents the email/password signup form and forwards submissions to Firebase Auth.
 export default function SignupScreen() {
@@ -33,6 +35,12 @@ export default function SignupScreen() {
   const handleOpenPrivacyPolicy = React.useCallback(() => {
     void Linking.openURL(PRIVACY_POLICY_URL).catch(() => {
       setFormError("Unable to open the Privacy Policy right now.");
+    });
+  }, []);
+
+  const handleOpenTermsOfUse = React.useCallback(() => {
+    void Linking.openURL(TERMS_OF_USE_URL).catch(() => {
+      setFormError("Unable to open the Terms of Use right now.");
     });
   }, []);
 
@@ -171,7 +179,11 @@ export default function SignupScreen() {
         </Pressable>
 
         <Text style={styles.privacyText}>
-          By continuing, you acknowledge our{" "}
+          By creating an account, you agree to our{" "}
+          <Text style={styles.privacyLink} onPress={handleOpenTermsOfUse}>
+            Terms of Use
+          </Text>{" "}
+          and{" "}
           <Text style={styles.privacyLink} onPress={handleOpenPrivacyPolicy}>
             Privacy Policy
           </Text>
