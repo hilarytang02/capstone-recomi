@@ -25,7 +25,7 @@ export default function ReportModal({
       <View style={styles.overlay}>
         <View style={styles.card}>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.helper}>Reason is optional for now.</Text>
+          <Text style={styles.helper}>(Optional) You can include extra details to help with review.</Text>
           <TextInput
             value={reason}
             onChangeText={onChangeReason}

@@ -61,7 +61,10 @@ export default function PinDetailSheet({ entry, onClose, bottomInset = 0, onRepo
       await onReport(rendered, reportReason);
       setReportVisible(false);
       setReportReason("");
-      Alert.alert("Report submitted", "Thanks. We’ll review it manually.");
+      Alert.alert(
+        "Report submitted",
+        "Thanks for letting us know. We’ll review this report and take appropriate action if needed."
+      );
     } catch (error) {
       console.error("Failed to report place", error);
       Alert.alert("Unable to report", "Please try again.");

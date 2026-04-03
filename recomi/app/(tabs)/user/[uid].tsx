@@ -726,7 +726,10 @@ export default function UserProfileScreen() {
       });
       setReportUserVisible(false);
       resetReportState();
-      Alert.alert("Report submitted", "Thanks. We’ll review it manually.");
+      Alert.alert(
+        "Report submitted",
+        "Thanks for letting us know. We’ll review this report and take appropriate action if needed."
+      );
     } catch (err) {
       console.error("Failed to submit user report", err);
       Alert.alert("Unable to report", "Please try again.");
@@ -753,7 +756,10 @@ export default function UserProfileScreen() {
       });
       setReportListVisible(false);
       resetReportState();
-      Alert.alert("Report submitted", "Thanks. We’ll review it manually.");
+      Alert.alert(
+        "Report submitted",
+        "Thanks for letting us know. We’ll review this report and take appropriate action if needed."
+      );
     } catch (err) {
       console.error("Failed to submit list report", err);
       Alert.alert("Unable to report", "Please try again.");
