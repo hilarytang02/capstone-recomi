@@ -1,6 +1,7 @@
 import React from "react";
 import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import * as AppleAuthentication from "expo-apple-authentication";
 import FontAwesome from "@expo/vector-icons/FontAwesome";
 import { useRouter } from "expo-router";
 
@@ -16,7 +17,7 @@ const PRIVACY_POLICY_URL =
 
 // Presents the email/password signup form and forwards submissions to Firebase Auth.
 export default function SignupScreen() {
-  const { createAccountWithEmail, signInWithGoogle, isSigningIn } = useAuth();
+  const { createAccountWithEmail, signInWithGoogle, signInWithApple, canSignInWithApple, isSigningIn } = useAuth();
   const router = useRouter();
 
   const draft = React.useMemo(() => getSignupDraft(), []);
@@ -133,6 +134,24 @@ export default function SignupScreen() {
           <Text style={styles.dividerLabel}>OR</Text>
           <View style={styles.line} />
         </View>
+
+        {canSignInWithApple ? (
+          <>
+            {isSigningIn ? (
+              <View style={[styles.appleButtonFallback, styles.disabledButton]}>
+                <ActivityIndicator color="#ffffff" />
+              </View>
+            ) : (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={999}
+                style={styles.appleButton}
+                onPress={signInWithApple}
+              />
+            )}
+          </>
+        ) : null}
 
         <Pressable
           style={[styles.googleButton, (isSigningIn || submitting) && styles.disabledButton]}
@@ -258,6 +277,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 12,
     backgroundColor: "#ffffff",
+    width: "100%",
+  },
+  appleButton: {
+    width: "100%",
+    height: 52,
+  },
+  appleButtonFallback: {
+    borderRadius: 999,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0f172a",
     width: "100%",
   },
   googleIcon: {

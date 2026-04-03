@@ -1,4 +1,4 @@
-import type { User } from "@firebase/auth-types"
+import type { User } from "firebase/auth"
 import {
   collection,
   doc,

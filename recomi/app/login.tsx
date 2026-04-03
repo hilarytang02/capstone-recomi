@@ -2,12 +2,14 @@ import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import * as AppleAuthentication from "expo-apple-authentication";
+import FontAwesome from "@expo/vector-icons/FontAwesome";
 
 import { useAuth } from "@/shared/context/auth";
 
-// Handles both email+password and username+password logins plus Google OAuth.
+// Handles username/password plus social sign-in entry points.
 export default function LoginScreen() {
-  const { signInWithUsername, signInWithGoogle, isSigningIn, error } = useAuth();
+  const { signInWithUsername, signInWithGoogle, signInWithApple, canSignInWithApple, isSigningIn, error } = useAuth();
   const router = useRouter();
 
   const [username, setUsername] = React.useState("");
@@ -64,6 +66,24 @@ export default function LoginScreen() {
           <Text style={styles.dividerLabel}>OR</Text>
           <View style={styles.line} />
         </View>
+
+        {canSignInWithApple ? (
+          <>
+            {isSigningIn ? (
+              <View style={[styles.appleButtonFallback, styles.disabledButton]}>
+                <ActivityIndicator color="#ffffff" />
+              </View>
+            ) : (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={999}
+                style={styles.appleButton}
+                onPress={signInWithApple}
+              />
+            )}
+          </>
+        ) : null}
 
         <Pressable
           style={[styles.googleButton, (isSigningIn || submitting) && styles.disabledButton]}
@@ -171,6 +191,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 12,
     backgroundColor: "#ffffff",
+    width: "100%",
+  },
+  appleButton: {
+    width: "100%",
+    height: 52,
+  },
+  appleButtonFallback: {
+    borderRadius: 999,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0f172a",
     width: "100%",
   },
   googleIcon: {

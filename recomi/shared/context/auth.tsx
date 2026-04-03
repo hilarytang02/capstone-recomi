@@ -1,13 +1,16 @@
 import React from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as Crypto from "expo-crypto";
 import * as Google from "expo-auth-session/providers/google";
 import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import Constants from "expo-constants";
-import type { User } from "@firebase/auth-types";
 import { FirebaseError } from "firebase/app";
 import {
   GoogleAuthProvider,
+  OAuthProvider,
+  type User,
   onAuthStateChanged,
   signInWithCredential,
   signOut as firebaseSignOut,
@@ -30,6 +33,8 @@ type AuthContextValue = {
   isSigningIn: boolean;
   error: string | null;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
+  canSignInWithApple: boolean;
   signInWithUsername: (username: string, password: string) => Promise<void>;
   createAccountWithEmail: (email: string, password: string, username?: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -53,29 +58,58 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   const [initializing, setInitializing] = React.useState(true);
   const [isSigningIn, setIsSigningIn] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [canSignInWithApple, setCanSignInWithApple] = React.useState(false);
   const [onboardingComplete, setOnboardingComplete] = React.useState(false);
   const [onboardingLoading, setOnboardingLoading] = React.useState(true);
 
   const useProxy = Constants.appOwnership === "expo";
-  const redirectUri = makeRedirectUri({
-    useProxy,
-    native: googleClientConfig.iosUrlScheme
-      ? `${googleClientConfig.iosUrlScheme}:/oauthredirect`
-      : undefined,
-  });
+  const redirectUri = makeRedirectUri(
+    {
+      native: googleClientConfig.iosUrlScheme
+        ? `${googleClientConfig.iosUrlScheme}:/oauthredirect`
+        : undefined,
+      ...(useProxy ? ({ useProxy: true } as object) : {}),
+    } as Parameters<typeof makeRedirectUri>[0]
+  );
 
   const [request, response, promptAsync] = Google.useAuthRequest(
     {
-      expoClientId: googleClientConfig.expoClientId,
+      clientId: googleClientConfig.expoClientId ?? googleClientConfig.webClientId,
       iosClientId: googleClientConfig.iosClientId,
       androidClientId: googleClientConfig.androidClientId,
       webClientId: googleClientConfig.webClientId,
       scopes: ["profile", "email"],
-      prompt: "select_account",
+      extraParams: { prompt: "select_account" },
       redirectUri,
     },
-    { useProxy }
+    ({ ...(useProxy ? { useProxy: true } : {}) } as unknown) as Parameters<typeof Google.useAuthRequest>[1]
   );
+
+  React.useEffect(() => {
+    if (Platform.OS !== "ios") {
+      setCanSignInWithApple(false);
+      return;
+    }
+
+    let cancelled = false;
+    void AppleAuthentication.isAvailableAsync()
+      .then((available) => {
+        console.log("[auth] Apple sign-in available:", available);
+        if (!cancelled) {
+          setCanSignInWithApple(available);
+        }
+      })
+      .catch((err) => {
+        console.warn("[auth] Apple sign-in availability check failed:", err);
+        if (!cancelled) {
+          setCanSignInWithApple(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   React.useEffect(() => {
     // Keep Auth state, profile doc, and onboarding flag in sync with Firebase.
@@ -115,9 +149,11 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     const handleResponse = async () => {
-      if (response?.type === "success") {
+      const responseType = response?.type as string | undefined;
+      if (responseType === "success") {
         try {
-          const idToken = response.authentication?.idToken;
+          const successResponse = response as { authentication?: { idToken?: string | null } } | null;
+          const idToken = successResponse?.authentication?.idToken;
           if (!idToken) {
             throw new Error("Google authentication did not return an ID token.");
           }
@@ -133,10 +169,11 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
         } finally {
           setIsSigningIn(false);
         }
-      } else if (response?.type === "error") {
-        setError(response.error?.message ?? "Google sign-in failed");
+      } else if (responseType === "error") {
+        const errorResponse = response as { error?: { message?: string | null } } | null;
+        setError(errorResponse?.error?.message ?? "Google sign-in failed");
         setIsSigningIn(false);
-      } else if (response?.type && response.type !== "success") {
+      } else if (responseType) {
         setIsSigningIn(false);
       }
     };
@@ -153,16 +190,74 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     setIsSigningIn(true);
     try {
-      await promptAsync({
-        useProxy,
-        showInRecents: true,
-      });
+      await promptAsync(({ ...(useProxy ? { useProxy: true } : {}), showInRecents: true } as unknown) as Parameters<
+        typeof promptAsync
+      >[0]);
     } catch (err) {
       console.error("Google prompt failed", err);
       setError(err instanceof Error ? err.message : "Unable to start Google sign-in");
       setIsSigningIn(false);
     }
   }, [promptAsync, request]);
+
+  const signInWithApple = React.useCallback(async () => {
+    if (Platform.OS !== "ios" || !canSignInWithApple) {
+      setError("Apple sign-in is only available on supported iOS devices.");
+      return;
+    }
+
+    setError(null);
+    setIsSigningIn(true);
+    try {
+      const rawNonce = Crypto.randomUUID();
+      const hashedNonce = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, rawNonce);
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+
+      if (!credential.identityToken) {
+        throw new Error("Apple authentication did not return an identity token.");
+      }
+
+      const provider = new OAuthProvider("apple.com");
+      const firebaseCredential = provider.credential({
+        idToken: credential.identityToken,
+        rawNonce,
+      });
+      const result = await signInWithCredential(auth, firebaseCredential);
+      if (result.user) {
+        const fullName = [credential.fullName?.givenName, credential.fullName?.familyName]
+          .filter(Boolean)
+          .join(" ")
+          .trim();
+        await upsertUserProfileFromAuth(result.user, {
+          ...(fullName ? { displayName: fullName } : {}),
+          ...(credential.email ? { email: credential.email } : {}),
+        });
+      }
+    } catch (err) {
+      const errCode =
+        typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : null;
+      console.warn("[auth] Apple sign-in native error code:", errCode, err);
+      if (
+        errCode === "ERR_REQUEST_CANCELED"
+      ) {
+        setError(null);
+      } else {
+        console.error("Apple sign-in failed", err);
+        // Surface a clearer message in the UI for debugging: include native error code and message
+        const errorMessage = err instanceof Error ? err.message : JSON.stringify(err);
+        const displayMessage = errCode ? `${errCode}: ${errorMessage}` : errorMessage || "Apple sign-in failed";
+        setError(displayMessage);
+      }
+    } finally {
+      setIsSigningIn(false);
+    }
+  }, [canSignInWithApple]);
 
   const signOut = React.useCallback(async () => {
     await firebaseSignOut(auth);
@@ -263,6 +358,8 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       isSigningIn,
       error,
       signInWithGoogle,
+      signInWithApple,
+      canSignInWithApple,
       signInWithUsername,
       createAccountWithEmail,
       signOut,
@@ -270,7 +367,20 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
       onboardingLoading,
       setOnboardingComplete,
     }),
-    [user, initializing, isSigningIn, error, signInWithGoogle, signInWithUsername, createAccountWithEmail, signOut, onboardingComplete, onboardingLoading]
+    [
+      user,
+      initializing,
+      isSigningIn,
+      error,
+      signInWithGoogle,
+      signInWithApple,
+      canSignInWithApple,
+      signInWithUsername,
+      createAccountWithEmail,
+      signOut,
+      onboardingComplete,
+      onboardingLoading,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -326,7 +436,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
     if (canNavigateToRedirect) {
-      router.replace(redirectHref as string);
+      router.replace(redirectHref as Parameters<typeof router.replace>[0]);
     }
   }, [canNavigateToRedirect, redirectHref, router, rootNavigationState]);
 

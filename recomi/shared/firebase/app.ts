@@ -1,7 +1,7 @@
 import { initializeApp, getApp, getApps } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { FirebaseError } from "firebase/app";
-import { getAuth, initializeAuth, getReactNativePersistence } from "firebase/auth";
+import { getAuth, initializeAuth, getReactNativePersistence, type Persistence } from "firebase/auth";
 import { getFunctions } from "firebase/functions";
 import { getStorage } from "firebase/storage";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
@@ -39,7 +39,7 @@ if (Platform.OS === "web") {
 } else {
   try {
     authInstance = initializeAuth(app, {
-      persistence: getReactNativePersistence(ReactNativeAsyncStorage),
+      persistence: getReactNativePersistence(ReactNativeAsyncStorage) as Persistence,
     });
   } catch (err) {
     // initializeAuth throws if HMR already created an instance; fall back to the existing one.
