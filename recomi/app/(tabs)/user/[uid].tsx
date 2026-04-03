@@ -35,6 +35,9 @@ import FontAwesome from "@expo/vector-icons/FontAwesome";
 import PinDetailSheet from "@/components/PinDetailSheet";
 import { SavedPlaceMarkerIcon } from "@/components/SavedPlaceMarkerIcon";
 import RemoteAvatar from "@/components/RemoteAvatar";
+import ReportModal from "@/components/ReportModal";
+import { useModeration } from "@/shared/context/moderation";
+import { createReport } from "@/shared/api/moderation";
 
 type UserProfileData = UserDocument & {
   id: string;
@@ -91,6 +94,7 @@ export default function UserProfileScreen() {
   const { uid } = useLocalSearchParams<{ uid?: string | string[] }>();
   const resolvedUid = Array.isArray(uid) ? uid[0] : uid;
   const { user } = useAuth();
+  const { blockedUserIds, isBlockedUser, block, unblock } = useModeration();
   const router = useRouter();
   const { likedLists: myLikedLists, likeList, unlikeList, requestMapFocus } = useSavedLists();
   const insets = useSafeAreaInsets();
@@ -121,6 +125,11 @@ export default function UserProfileScreen() {
   const feedbackAnim = React.useRef(new Animated.Value(0)).current;
   const [feedbackMessage, setFeedbackMessage] = React.useState<string | null>(null);
   const feedbackTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const [reportUserVisible, setReportUserVisible] = React.useState(false);
+  const [reportListVisible, setReportListVisible] = React.useState(false);
+  const [reportReason, setReportReason] = React.useState("");
+  const [reportSubmitting, setReportSubmitting] = React.useState(false);
+  const [blockBusy, setBlockBusy] = React.useState(false);
 
   // Live subscriptions keep profile + list data fresh while viewing someone else.
   React.useEffect(() => {
@@ -218,6 +227,7 @@ export default function UserProfileScreen() {
 
   const isSelf = user?.uid === resolvedUid;
   const canFollow = Boolean(user && resolvedUid && !isSelf);
+  const isBlocked = isBlockedUser(resolvedUid);
 
   const legacyLists = React.useMemo(() => {
     if (!profile?.lists || !Array.isArray(profile.lists)) return [] as SavedListDefinition[];
@@ -668,13 +678,14 @@ export default function UserProfileScreen() {
             } as ProfileLite;
           })
         );
+        const visibleProfiles = profiles.filter((candidate) => !blockedUserIds.includes(candidate.id));
 
         if (mode === "followers") {
-          setFollowersList(profiles);
-          setFollowersCount(profiles.length);
+          setFollowersList(visibleProfiles);
+          setFollowersCount(visibleProfiles.length);
         } else {
-          setFollowingList(profiles);
-          setFollowingCount(profiles.length);
+          setFollowingList(visibleProfiles);
+          setFollowingCount(visibleProfiles.length);
         }
       } catch (error) {
         console.warn("Failed to load follow list", error);
@@ -687,8 +698,88 @@ export default function UserProfileScreen() {
         setFollowLoading(false);
       }
     },
-    [resolvedUid, user]
+    [blockedUserIds, resolvedUid, user]
   );
+
+  const resetReportState = React.useCallback(() => {
+    setReportReason("");
+    setReportSubmitting(false);
+  }, []);
+
+  const handleSubmitUserReport = React.useCallback(async () => {
+    if (!user?.uid || !resolvedUid || !profile) {
+      Alert.alert("Sign in required", "Please sign in to report users.");
+      return;
+    }
+
+    setReportSubmitting(true);
+    try {
+      await createReport({
+        reporterId: user.uid,
+        targetType: "user",
+        targetId: resolvedUid,
+        targetUserId: resolvedUid,
+        label: profile.displayName ?? profile.username ?? "User",
+        reason: reportReason,
+      });
+      setReportUserVisible(false);
+      resetReportState();
+      Alert.alert("Report submitted", "Thanks. We’ll review it manually.");
+    } catch (err) {
+      console.error("Failed to submit user report", err);
+      Alert.alert("Unable to report", "Please try again.");
+      setReportSubmitting(false);
+    }
+  }, [profile, reportReason, resetReportState, resolvedUid, user?.uid]);
+
+  const handleSubmitListReport = React.useCallback(async () => {
+    if (!user?.uid || !resolvedUid || !selectedGroup) {
+      Alert.alert("Sign in required", "Please sign in to report lists.");
+      return;
+    }
+
+    setReportSubmitting(true);
+    try {
+      await createReport({
+        reporterId: user.uid,
+        targetType: "list",
+        targetId: `${resolvedUid}:${selectedGroup.definition.id}`,
+        targetUserId: resolvedUid,
+        listId: selectedGroup.definition.id,
+        label: selectedGroup.definition.name,
+        reason: reportReason,
+      });
+      setReportListVisible(false);
+      resetReportState();
+      Alert.alert("Report submitted", "Thanks. We’ll review it manually.");
+    } catch (err) {
+      console.error("Failed to submit list report", err);
+      Alert.alert("Unable to report", "Please try again.");
+      setReportSubmitting(false);
+    }
+  }, [reportReason, resetReportState, resolvedUid, selectedGroup, user?.uid]);
+
+  const handleToggleBlock = React.useCallback(async () => {
+    if (!user?.uid || !resolvedUid || isSelf) {
+      Alert.alert("Sign in required", "Please sign in to manage blocks.");
+      return;
+    }
+    if (blockBusy) return;
+
+    setBlockBusy(true);
+    try {
+      if (isBlocked) {
+        await unblock(resolvedUid);
+      } else {
+        await block(resolvedUid);
+      }
+    } catch (err) {
+      console.error("Failed to update block state", err);
+      Alert.alert("Unable to update block", "Please try again.");
+    } finally {
+      setBlockBusy(false);
+    }
+  }, [block, blockBusy, isBlocked, isSelf, resolvedUid, unblock, user?.uid]);
 
   React.useEffect(() => {
     if (!followModalOpen) return;
@@ -707,6 +798,17 @@ export default function UserProfileScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{error ?? "User not found."}</Text>
+      </View>
+    );
+  }
+
+  if (isBlocked) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>You have blocked this user.</Text>
+        <Pressable style={styles.editAccountButton} onPress={handleToggleBlock} disabled={blockBusy}>
+          <Text style={styles.editAccountLabel}>{blockBusy ? "..." : "Unblock"}</Text>
+        </Pressable>
       </View>
     );
   }
@@ -815,6 +917,26 @@ export default function UserProfileScreen() {
                   >
                     {followStatusLoading ? "..." : isFollowingUser ? "Following" : "Follow"}
                   </Text>
+                </Pressable>
+              ) : null}
+              {!isSelf ? (
+                <Pressable
+                  style={styles.secondaryActionButton}
+                  onPress={() => {
+                    setReportReason("");
+                    setReportUserVisible(true);
+                  }}
+                >
+                  <Text style={styles.secondaryActionLabel}>Report User</Text>
+                </Pressable>
+              ) : null}
+              {!isSelf ? (
+                <Pressable
+                  style={[styles.secondaryActionButton, blockBusy && styles.editAccountButtonDisabled]}
+                  onPress={handleToggleBlock}
+                  disabled={blockBusy}
+                >
+                  <Text style={styles.secondaryActionLabel}>{blockBusy ? "..." : "Block"}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -930,31 +1052,44 @@ export default function UserProfileScreen() {
                         </Text>
                       </View>
                       {profile && (
-                        <Pressable
-                          style={[
-                            styles.detailStarButton,
-                            isListLiked(profile.id, selectedGroup.definition.id) &&
-                              styles.detailStarButtonActive,
-                          ]}
-                          onPress={() => handleToggleListLike(selectedGroup.definition)}
-                          hitSlop={12}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            isListLiked(profile.id, selectedGroup.definition.id)
-                              ? "Unstar list"
-                              : "Star list"
-                          }
-                        >
-                          <FontAwesome
-                            name={
-                              isListLiked(profile.id, selectedGroup.definition.id) ? "star" : "star-o"
+                        <View style={styles.detailActions}>
+                          <Pressable
+                            style={[
+                              styles.detailStarButton,
+                              isListLiked(profile.id, selectedGroup.definition.id) &&
+                                styles.detailStarButtonActive,
+                            ]}
+                            onPress={() => handleToggleListLike(selectedGroup.definition)}
+                            hitSlop={12}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              isListLiked(profile.id, selectedGroup.definition.id)
+                                ? "Unstar list"
+                                : "Star list"
                             }
-                            size={18}
-                            color={
-                              isListLiked(profile.id, selectedGroup.definition.id) ? "#f59e0b" : "#0f172a"
-                            }
-                          />
-                        </Pressable>
+                          >
+                            <FontAwesome
+                              name={
+                                isListLiked(profile.id, selectedGroup.definition.id) ? "star" : "star-o"
+                              }
+                              size={18}
+                              color={
+                                isListLiked(profile.id, selectedGroup.definition.id) ? "#f59e0b" : "#0f172a"
+                              }
+                            />
+                          </Pressable>
+                          {!isSelf ? (
+                            <Pressable
+                              style={styles.detailReportButton}
+                              onPress={() => {
+                                setReportReason("");
+                                setReportListVisible(true);
+                              }}
+                            >
+                              <Text style={styles.detailReportLabel}>Report</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
                       )}
                     </View>
                     <View style={styles.mapPreviewWrapper}>
@@ -1157,7 +1292,53 @@ export default function UserProfileScreen() {
         ) : null}
       </ScrollView>
 
-      <PinDetailSheet entry={activePinEntry} onClose={closeActivePinSheet} bottomInset={insets.bottom} />
+      <PinDetailSheet
+        entry={activePinEntry}
+        onClose={closeActivePinSheet}
+        bottomInset={insets.bottom}
+        onReport={
+          !isSelf && user?.uid
+            ? async (entry, reason) => {
+                await createReport({
+                  reporterId: user.uid,
+                  targetType: "place",
+                  targetId: entry.pin.placeId ?? `${entry.pin.lat}:${entry.pin.lng}:${entry.pin.label}`,
+                  targetUserId: resolvedUid ?? null,
+                  listId: entry.listId,
+                  placeId: entry.pin.placeId ?? null,
+                  label: entry.pin.label,
+                  reason,
+                });
+              }
+            : undefined
+        }
+      />
+
+      <ReportModal
+        visible={reportUserVisible}
+        title="Report user"
+        reason={reportReason}
+        loading={reportSubmitting}
+        onChangeReason={setReportReason}
+        onClose={() => {
+          setReportUserVisible(false);
+          resetReportState();
+        }}
+        onSubmit={handleSubmitUserReport}
+      />
+
+      <ReportModal
+        visible={reportListVisible}
+        title="Report list"
+        reason={reportReason}
+        loading={reportSubmitting}
+        onChangeReason={setReportReason}
+        onClose={() => {
+          setReportListVisible(false);
+          resetReportState();
+        }}
+        onSubmit={handleSubmitListReport}
+      />
 
       <Modal
         visible={followModalOpen}
@@ -1466,6 +1647,19 @@ const styles = StyleSheet.create({
   profileActions: {
     flexDirection: "row",
     marginTop: 4,
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  secondaryActionButton: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#e2e8f0",
+  },
+  secondaryActionLabel: {
+    color: "#0f172a",
+    fontSize: 14,
+    fontWeight: "600",
   },
   profileTabs: {
     flexDirection: "row",
@@ -1812,6 +2006,11 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
   },
+  detailActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   detailStarButton: {
     width: 40,
     height: 40,
@@ -1821,6 +2020,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderWidth: 1,
     borderColor: "#e2e8f0",
+  },
+  detailReportButton: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#e2e8f0",
+  },
+  detailReportLabel: {
+    color: "#0f172a",
+    fontSize: 13,
+    fontWeight: "600",
   },
   detailStarButtonActive: {
     backgroundColor: "rgba(250,204,21,0.18)",

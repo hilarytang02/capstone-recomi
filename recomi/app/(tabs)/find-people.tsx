@@ -21,6 +21,7 @@ import RemoteAvatar from "@/components/RemoteAvatar";
 import type { SavedEntry } from "@/shared/context/savedLists";
 import { useAuth } from "@/shared/context/auth";
 import { SAFE_AREA_PADDING } from "@/constants/layout";
+import { useModeration } from "@/shared/context/moderation";
 
 const SEARCH_DEBOUNCE_MS = 350;
 
@@ -41,6 +42,7 @@ function countSavedPlaces(user: UserProfile): number {
 export default function FindPeopleScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { blockedUserIds } = useModeration();
   const router = useRouter();
   const searchInputRef = React.useRef<TextInput | null>(null);
   const safeTop = Math.max(insets.top, SAFE_AREA_PADDING.top);
@@ -88,10 +90,12 @@ export default function FindPeopleScreen() {
         hasMoreRef.current = nextHasMore;
         setHasMore(nextHasMore);
 
-        const enriched = result.users.map((user) => ({
+        const enriched = result.users
+          .filter((candidate) => !blockedUserIds.includes(candidate.id))
+          .map((user) => ({
           ...user,
           savedPlacesCount: countSavedPlaces(user),
-        }));
+          }));
 
         setResults((prev) => (mode === "append" ? [...prev, ...enriched] : enriched));
       } catch (err) {
@@ -106,7 +110,7 @@ export default function FindPeopleScreen() {
         fetchingRef.current = false;
       }
     },
-    [query, user?.uid]
+    [blockedUserIds, query, user?.uid]
   );
 
   // Debounce queries so we don't spam Firestore while the user types.

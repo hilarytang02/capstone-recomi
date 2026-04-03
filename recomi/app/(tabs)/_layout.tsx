@@ -6,6 +6,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { SavedListsProvider } from '../../shared/context/savedLists';
 import { SocialGraphProvider } from '../../shared/context/socialGraph';
+import { ModerationProvider } from '../../shared/context/moderation';
 
 // You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
 function TabBarIcon(props: {
@@ -19,14 +20,15 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <SavedListsProvider>
-      <SocialGraphProvider>
-        <Tabs
-          initialRouteName="map"
-          screenOptions={{
-            tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-            headerShown: false,
-          }}>
+    <ModerationProvider>
+      <SavedListsProvider>
+        <SocialGraphProvider>
+          <Tabs
+            initialRouteName="map"
+            screenOptions={{
+              tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+              headerShown: false,
+            }}>
         <Tabs.Screen
           name="map"
           options={{
@@ -67,8 +69,9 @@ export default function TabLayout() {
             href: null,
           }}
         />
-        </Tabs>
-      </SocialGraphProvider>
-    </SavedListsProvider>
+          </Tabs>
+        </SocialGraphProvider>
+      </SavedListsProvider>
+    </ModerationProvider>
   );
 }

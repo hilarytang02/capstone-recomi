@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore"
 
 import { useAuth } from "./auth"
+import { useModeration } from "./moderation"
 import { firestore } from "../firebase/app"
 import { USER_FOLLOWS_COLLECTION, USERS_COLLECTION } from "../api/users"
 
@@ -33,6 +34,7 @@ const SocialGraphContext = React.createContext<SocialGraphContextValue | undefin
 
 export function SocialGraphProvider({ children }: { children: React.ReactNode }) {
   const { user, initializing } = useAuth()
+  const { blockedUserIds } = useModeration()
   const [followeeIds, setFolloweeIds] = React.useState<string[]>([])
   const [relatedUserIds, setRelatedUserIds] = React.useState<string[]>([])
   const [relatedProfiles, setRelatedProfiles] = React.useState<Map<string, SocialGraphProfile>>(EMPTY_PROFILES)
@@ -120,8 +122,10 @@ export function SocialGraphProvider({ children }: { children: React.ReactNode })
       if (!followeesReady || !followersReady) {
         return
       }
-      const orderedIds = [...followees, ...followers.filter((id) => !followees.includes(id))]
-      setFolloweeIds(followees)
+      const visibleFollowees = followees.filter((id) => !blockedUserIds.includes(id))
+      const visibleFollowers = followers.filter((id) => !blockedUserIds.includes(id))
+      const orderedIds = [...visibleFollowees, ...visibleFollowers.filter((id) => !visibleFollowees.includes(id))]
+      setFolloweeIds(visibleFollowees)
       setRelatedUserIds(orderedIds)
       void syncProfiles(orderedIds)
     }
@@ -167,7 +171,7 @@ export function SocialGraphProvider({ children }: { children: React.ReactNode })
       unsubFollowees()
       unsubFollowers()
     }
-  }, [initializing, user?.uid])
+  }, [blockedUserIds, initializing, user?.uid])
 
   const value = React.useMemo(
     () => ({

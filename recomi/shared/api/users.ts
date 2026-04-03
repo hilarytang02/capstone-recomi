@@ -40,6 +40,7 @@ export type UserDocument = {
   email?: string | null
   username?: string | null
   usernameLowercase?: string | null
+  blockedUsers?: string[]
   bio?: string | null
   homeCity?: string | null
   fcmTokens?: string[]

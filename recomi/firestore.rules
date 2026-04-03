@@ -106,5 +106,11 @@ service cloud.firestore {
         && resource.data.saverId == request.auth.uid;
       allow update: if false;
     }
+
+    match /reports/{reportId} {
+      allow create: if request.auth != null
+        && request.resource.data.reporterId == request.auth.uid;
+      allow read, update, delete: if false;
+    }
   }
 }
